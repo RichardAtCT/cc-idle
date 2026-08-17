@@ -26,7 +26,7 @@ The product bet: the focus choreography must feel *seamless*. If switching is ja
 - G6: Multi-session awareness: two CC sessions running simultaneously must not corrupt state.
 
 **Non-Goals (for now)**
-- NG1: Game mechanics, economy, progression, theme content (hyperscaler / frontier lab) — separate spec after Phase 1 sign-off.
+- NG1: Game mechanics, economy, progression, theme content (hyperscaler / frontier lab) — specced separately in [PRD-MECHANICS.md](PRD-MECHANICS.md).
 - NG2: GUI / web frontend. Terminal only.
 - NG3: Windows support. Target macOS + Linux, tmux-first.
 - NG4: Historical analytics dashboards.
@@ -173,7 +173,7 @@ Only after Phase 1 "looks/feels good":
 **Done when:** a toy consumer can subscribe to aggregated telemetry and persist a counter across restarts, driven entirely by replay.
 
 ### Phase 3 — Game mechanics (separate PRD)
-Hyperscaler / frontier-lab theme, economy design, progression. Deliberately unspecified here. Input contract: Phase 2's telemetry API and replay tool are the only interfaces mechanics may touch.
+Hyperscaler / frontier-lab theme, economy design, progression. Deliberately unspecified here — see [PRD-MECHANICS.md](PRD-MECHANICS.md). Input contract: Phase 2's telemetry API and replay tool are the only interfaces mechanics may touch.
 
 ## 9. Open Questions
 1. Window-level vs pane-level focus switching — pane feels slicker, window is more robust with user's existing tmux config. Default? (Proposal: pane within a dedicated window.)

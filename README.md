@@ -132,7 +132,7 @@ pnpm typecheck
 
 ## Status
 
-Currently in infrastructure phase: event bridge, focus orchestration, TUI shell, and telemetry pipeline are implemented. Game mechanics (hyperscaler theme, economy, progression) are specified in a separate phase. See [docs/PRD.md](docs/PRD.md) for the full technical specification.
+Currently in infrastructure phase: event bridge, focus orchestration, TUI shell, and telemetry pipeline are implemented. Game mechanics (hyperscaler theme, economy, progression) are specified in [docs/PRD-MECHANICS.md](docs/PRD-MECHANICS.md). See [docs/PRD.md](docs/PRD.md) for the full infrastructure specification.
 
 ## License
 
