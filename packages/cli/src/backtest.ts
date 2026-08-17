@@ -14,6 +14,7 @@ import {
   matchingGlob,
   type EventEnvelope
 } from '@ccidle/shared';
+import { costOf, formatUsd, loadPriceTable, priceFor } from './prices.js';
 
 /**
  * `ccidle backtest` — batch-replay an imported corpus headless and emit a
@@ -352,7 +353,7 @@ export const IMPORT_GAPS: readonly string[] = [
   'Notification events (permission prompts / idle alerts) leave no transcript trace and are not reconstructed — no HUMAN_ACTIVE signal exists in imported data.',
   'tmux pane fields are runtime-only and absent from imported envelopes.',
   'Stop timing is approximated by the last assistant message of each turn.',
-  'Estimated cost is omitted: the repo has no model price table.'
+  'Estimated cost uses published list rates (config/prices.json) and ignores negotiated discounts, the Batch API discount, inference-geo multipliers, fast mode, and per-search server-tool charges.'
 ];
 
 export interface BacktestOptions {
@@ -581,22 +582,54 @@ export function formatBacktestMarkdown(report: BacktestReport, fileCount: number
   lines.push(`- Subagent completions: ${t.totals.subagentStops}`);
   lines.push(`- Tokens: ${formatTokens(t.totals.tokens)}`);
   lines.push('');
-  lines.push('| Model | Input | Output | Cache read | Cache write |');
-  lines.push('|---|---:|---:|---:|---:|');
+
+  const prices = loadPriceTable();
+  const unknownDisplay = prices?.unknownModel?.display ?? 'n/a';
+  lines.push('| Model | Input | Output | Cache read | Cache write | Est. cost |');
+  lines.push('|---|---:|---:|---:|---:|---:|');
+  let pricedTotal = 0;
+  const unpriced: string[] = [];
   for (const [model, tok] of Object.entries(t.totals.tokensByModel)) {
+    const cost = costOf(priceFor(prices, model), tok);
+    if (cost) pricedTotal += cost.total;
+    else unpriced.push(model);
     lines.push(
-      `| ${model} | ${tok.inputTokens.toLocaleString('en-US')} | ${tok.outputTokens.toLocaleString('en-US')} | ${tok.cacheReadTokens.toLocaleString('en-US')} | ${tok.cacheWriteTokens.toLocaleString('en-US')} |`
+      `| ${model} | ${tok.inputTokens.toLocaleString('en-US')} | ${tok.outputTokens.toLocaleString('en-US')} | ${tok.cacheReadTokens.toLocaleString('en-US')} | ${tok.cacheWriteTokens.toLocaleString('en-US')} | ${formatUsd(cost ? cost.total : null, unknownDisplay)} |`
     );
+  }
+  const anyPriced = Object.keys(t.totals.tokensByModel).length > unpriced.length;
+  lines.push(
+    `| **Total** | ${t.totals.tokens.inputTokens.toLocaleString('en-US')} | ${t.totals.tokens.outputTokens.toLocaleString('en-US')} | ${t.totals.tokens.cacheReadTokens.toLocaleString('en-US')} | ${t.totals.tokens.cacheWriteTokens.toLocaleString('en-US')} | ${formatUsd(anyPriced ? pricedTotal : null, unknownDisplay)} |`
+  );
+  lines.push('');
+  if (prices) {
+    lines.push(
+      `Estimated cost is **approximate**: ${prices.metadata.source} list rates (${prices.metadata.unit}, ${prices.metadata.currency}), retrieved ${prices.metadata.retrieved}. ` +
+        'Cache writes are costed at the 5-minute rate. Discounts, batch pricing, inference-geo multipliers, and server-tool charges are not applied.'
+    );
+    if (unpriced.length > 0) {
+      lines.push('');
+      lines.push(
+        `No published rate for ${unpriced.map((m) => `\`${m}\``).join(', ')} — shown as ${unknownDisplay} and excluded from the total.`
+      );
+    }
+  } else {
+    lines.push('Estimated cost unavailable: config/prices.json could not be read.');
   }
   lines.push('');
   lines.push('## Projects (regions)');
   lines.push('');
-  lines.push('| Project | Sessions | Turns | Tool calls | Failures | Subagents | Output tokens |');
-  lines.push('|---|---:|---:|---:|---:|---:|---:|');
+  lines.push('| Project | Sessions | Turns | Tool calls | Failures | Subagents | Output tokens | Est. cost |');
+  lines.push('|---|---:|---:|---:|---:|---:|---:|---:|');
   for (const [id, p] of Object.entries(t.projects)) {
     const output = Object.values(p.tokensByModel).reduce((sum, tok) => sum + tok.outputTokens, 0);
+    let projectCost: number | null = null;
+    for (const [model, tok] of Object.entries(p.tokensByModel)) {
+      const cost = costOf(priceFor(prices, model), tok);
+      if (cost) projectCost = (projectCost ?? 0) + cost.total;
+    }
     lines.push(
-      `| ${p.name === id ? id : `${p.name} (\`${id}\`)`} | ${p.sessions} | ${p.turns} | ${p.toolCalls} | ${p.toolFailures} | ${p.subagentStops} | ${output.toLocaleString('en-US')} |`
+      `| ${p.name === id ? id : `${p.name} (\`${id}\`)`} | ${p.sessions} | ${p.turns} | ${p.toolCalls} | ${p.toolFailures} | ${p.subagentStops} | ${output.toLocaleString('en-US')} | ${formatUsd(projectCost, unknownDisplay)} |`
     );
   }
   lines.push('');
