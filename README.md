@@ -99,12 +99,48 @@ All values override via environment: `CCIDLE_FOCUS_ENABLED=false`, `CCIDLE_LOG_R
 **Environment variables:**
 - `CCIDLE_HOME` — config and events directory (default: `~/.ccidle`)
 
+## The Game
+
+CC Idle is a productivity mirror: you are building a hyperscaler and the frontier
+lab it powers, and the only engine is real delegated work. Telemetry maps to the
+economy (see [docs/PRD-MECHANICS.md](docs/PRD-MECHANICS.md)):
+
+- **Output tokens → Compute (FLOPS)** — with per-region diminishing returns, so grinding tokens visibly yields less
+- **Successful Edit/Write/Bash → Engineering**; **Read/Search/Fetch → Research Data**
+- **Failed tool calls → incidents** (mild regional debuff until acknowledged; the post-mortem pays a sliver of Engineering)
+- **`SubagentStop` → training run completes**; **`Stop` → milestone shipped** (+Reputation, retroactive completion bonus)
+- Each project folder is a **region** with its own infrastructure multiplier; regions persist across sessions
+
+Spend Compute on GPUs → racks → datacenters, hire researchers (soft-gated by
+Reputation), run experiments, and ship model generations: prestige resets
+infrastructure and staff but banks permanent **Breakthroughs**.
+
+In-game keys (all single-keypress, interruption-safe): `tab` cycle region,
+`g`/`r`/`d` buy infrastructure, `h` hire, `e` experiment, `a` acknowledge
+incident, `v` Breakthrough tree, `P` ship generation.
+
+When no Claude Code session is working, the economy stops. There is no offline
+progress, nothing purchasable with real money, and no timer that punishes
+walking away.
+
+### Balance tuning via replay
+
+Economy constants live in a single file, `packages/game/src/balance.ts`, and are
+tuned against recorded real sessions rather than guesses:
+
+```bash
+ccidle replay ~/.ccidle/events/<session>.jsonl          # instant, prints the economy report
+ccidle replay a.jsonl b.jsonl --speed 60                # paced ×60, narrated live
+ccidle replay session.jsonl --json --quiet              # machine-readable stats
+```
+
 ## Repository Layout
 
-- `packages/shared/src/` — event envelope types, state machine schema, zod validators, config schema
-- `packages/daemon/src/` — ccidled (file watcher, state machine, tmux focus control, IPC socket, transcript reader)
-- `packages/tui/src/` — ccidle-tui (Ink/React CLI, session strip, tick counter, alert overlay)
-- `packages/cli/src/` — ccidle CLI (installer, launcher, doctor, attach, register commands)
+- `packages/shared/src/` — event envelope types, state machine schema, zod validators, config schema, save-file abstraction
+- `packages/game/src/` — pure game engine (balance constants, economy reducer, incidents, prestige, replay + economy report)
+- `packages/daemon/src/` — ccidled (file watcher, state machine, tmux focus control, IPC socket, transcript reader, game host)
+- `packages/tui/src/` — ccidle-tui (Ink/React CLI, session strip, game stage, lab panel, alert overlay)
+- `packages/cli/src/` — ccidle CLI (installer, launcher, doctor, attach, register, replay commands)
 - `hooks/` — POSIX sh hook shims (on-session-start.sh, on-pre-tool-use.sh, etc.)
 
 ## Development
@@ -132,7 +168,7 @@ pnpm typecheck
 
 ## Status
 
-Currently in infrastructure phase: event bridge, focus orchestration, TUI shell, and telemetry pipeline are implemented. Game mechanics (hyperscaler theme, economy, progression) are specified in [docs/PRD-MECHANICS.md](docs/PRD-MECHANICS.md). See [docs/PRD.md](docs/PRD.md) for the full infrastructure specification.
+Infrastructure (event bridge, focus orchestration, TUI shell, telemetry pipeline) and game mechanics phases M1–M3 (core economy, lab & prestige, incidents & narration) are implemented. M4 (the read-only web observatory) is deliberately deferred per the mechanics PRD. See [docs/PRD.md](docs/PRD.md) for the infrastructure specification and [docs/PRD-MECHANICS.md](docs/PRD-MECHANICS.md) for the game design.
 
 ## License
 

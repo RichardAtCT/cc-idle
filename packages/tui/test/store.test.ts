@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import type { ServerMessage, SessionSnapshot } from '@ccidle/shared';
 import { EMPTY_TOKEN_TOTALS } from '@ccidle/shared';
+import { initialGameState } from '@ccidle/game';
 import { applyMessage, reduce, initialState, orderedSessions } from '../src/store.js';
 import type { AppState } from '../src/store.js';
 
@@ -168,5 +169,43 @@ describe('shared fixtures smoke check', () => {
       cacheReadTokens: 0,
       cacheWriteTokens: 0
     });
+  });
+});
+
+describe('game-state messages', () => {
+  function gameWithCompute(compute: number) {
+    const game = initialGameState('2026-08-17T10:00:00.000Z');
+    game.regions['/p/alpha'] = {
+      id: '/p/alpha',
+      name: 'alpha',
+      foundedAt: '2026-08-17T10:00:00.000Z',
+      status: 'idle' as const,
+      infrastructure: {},
+      window: { startMs: 0, outputTokens: 0 },
+      turnAccrual: 0,
+      incidents: [],
+      lastIncidentAtMs: 0,
+      totals: { compute, engineering: 0, research: 0, outputTokens: 0, incidents: 0 }
+    };
+    return game;
+  }
+
+  it('parses and stores pushed game state', () => {
+    const game = gameWithCompute(100);
+    const state = applyMessage(initialState, { type: 'game-state', game: game as never });
+    expect(state.game).not.toBeNull();
+    expect(state.game!.regions['/p/alpha']!.totals.compute).toBe(100);
+  });
+
+  it('ignores game payloads it cannot parse (version skew tolerance)', () => {
+    const state = applyMessage(initialState, { type: 'game-state', game: { bogus: true } });
+    expect(state.game).toBeNull();
+  });
+
+  it('tracks per-region compute deltas for the sparkline', () => {
+    let state = applyMessage(initialState, { type: 'game-state', game: gameWithCompute(100) as never });
+    state = applyMessage(state, { type: 'game-state', game: gameWithCompute(160) as never });
+    state = applyMessage(state, { type: 'game-state', game: gameWithCompute(160) as never });
+    expect(state.computeFlow['/p/alpha']).toEqual([0, 60, 0]);
   });
 });

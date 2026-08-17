@@ -121,7 +121,7 @@ Tool payloads may contain secrets (API keys, passwords). The daemon:
 Terminal UI for game mechanics and session monitoring. Connects to daemon socket; renders:
 
 - **Session strip:** One row per active CC session; columns show state (HUMAN_ACTIVE/CC_WORKING/STALE), elapsed time in state, tool-call count this turn, last tool, token total, session cwd/pane.
-- **Placeholder game panel:** Big tick counter (increments on `PostToolUse` events) to prove the telemetry loop end-to-end.
+- **Game surface:** resource bar (Compute/Engineering/Data/Reputation/Breakthroughs), the focused region as a NOC stage (rack diagram, compute-flow sparkline, diminishing-returns meter, incidents), the frontier-lab panel (hires, generation progress), and a narration feed.
 - **Alert overlay:** Full-width inverse-video banner that flashes on `HUMAN_ACTIVE` transitions ("Session 1 needs you!"); accompanied by a bell ring if configured.
 
 **Keybinds:**
@@ -129,10 +129,21 @@ Terminal UI for game mechanics and session monitoring. Connects to daemon socket
 - `f` — toggle auto-focus
 - `s` — cycle sessions
 - `1..9` — jump to corresponding session's CC pane (from needs-you queue)
+- `tab` — cycle focused region; `g`/`r`/`d` buy infrastructure; `h` hire; `e` experiment; `a` acknowledge incident; `v` Breakthrough tree; `P` ship generation
 
 **Robustness:**
 - Reconnects to daemon socket automatically if it restarts.
 - Degraded rendering if daemon is offline ("daemon offline, awaiting reconnect").
+
+### 5b. Game Engine & Host (`packages/game`, daemon `game-host.ts`)
+
+Game mechanics live in `@ccidle/game` as a **pure reducer**: `(state, telemetry | session-state | action, now) → (state, narration)`. No wall clock, no randomness, no I/O — time comes from envelope timestamps, so `ccidle replay` reproduces an identical economy from a recorded session. All tuning constants live in `packages/game/src/balance.ts`.
+
+The daemon hosts the engine in `GameHost`, which owns the impure parts:
+
+- **Persistence:** game state + per-event-file cursors saved atomically to `~/.ccidle/game/save.json` via the shared versioned save-file abstraction (autosave every 15s, eager on player actions, and on shutdown).
+- **Replay dedup:** the watcher re-reads event files from byte 0 on daemon restart; the save's per-file cursors skip exactly the already-absorbed prefix, so nothing double-counts — while events appended during daemon downtime still count (real work, processed late). Rotation/truncation resets a file's cursor.
+- **IPC:** full game state is pushed to TUIs as opaque `game-state` messages (throttled to one per 150ms); TUIs send `game-action` messages (buy/hire/ack/ship/…) validated by the engine's zod schema. The shared IPC layer treats both payloads as opaque records so it stays decoupled from mechanics.
 
 ### 6. Launcher & Registration (`ccidle install`, `ccidle up`, `ccidle attach`)
 

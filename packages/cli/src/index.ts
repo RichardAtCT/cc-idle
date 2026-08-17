@@ -8,3 +8,4 @@ export * from './tmux.js';
 export * from './daemon-control.js';
 export * from './up.js';
 export * from './attach.js';
+export * from './replay.js';

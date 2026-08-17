@@ -1,6 +1,6 @@
 # PRD — "CC Idle" Game Mechanics
 
-**Status:** Draft v1
+**Status:** Draft v1 — phases M1–M3 implemented (`packages/game`, daemon game host, TUI game surface, `ccidle replay`); M4 deferred
 **Depends on:** [docs/PRD.md](PRD.md) (infrastructure) Phases 1–2 complete. Mechanics consume ONLY the Phase 2 telemetry API, save-file abstraction, and replay tool.
 **Interface:** TUI (Ink) is the sole interactive surface. Web renderer, if built, is read-only ambient display (see §8).
 

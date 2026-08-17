@@ -20,6 +20,10 @@ export interface IpcServerDeps {
   onResumeAutofocus: () => void;
   onRegister: (msg: RegisterMessage) => void;
   onFocusSession: (sessionId: string) => void | Promise<void>;
+  /** Current game state for new connections; null when the game host is absent. */
+  gameState?: () => Record<string, unknown> | null;
+  /** Player decision relayed from a TUI (validated by @ccidle/game). */
+  onGameAction?: (action: Record<string, unknown>) => void;
 }
 
 export interface IpcLogger {
@@ -73,6 +77,9 @@ export class IpcServer {
       sessions: this.deps.sessions()
     });
 
+    const game = this.deps.gameState?.();
+    if (game) this.send(socket, { type: 'game-state', game });
+
     socket.on('data', (chunk) => this.onData(socket, chunk));
     socket.on('close', () => {
       this.clients.delete(socket);
@@ -115,6 +122,9 @@ export class IpcServer {
       case 'focus-session':
         void this.deps.onFocusSession(message.sessionId);
         break;
+      case 'game-action':
+        this.deps.onGameAction?.(message.action);
+        break;
     }
   }
 
@@ -139,6 +149,10 @@ export class IpcServer {
 
   broadcastAlert(kind: 'needs-you' | 'clear', sessionId: string, queue: SessionSnapshot[]): void {
     this.broadcast({ type: 'alert', kind, sessionId, queue });
+  }
+
+  broadcastGameState(game: Record<string, unknown>): void {
+    this.broadcast({ type: 'game-state', game });
   }
 
   private broadcast(message: ServerMessage): void {

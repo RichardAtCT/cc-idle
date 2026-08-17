@@ -48,6 +48,11 @@ export function registrationsPath(env?: NodeJS.ProcessEnv): string {
   return path.join(ccidleHome(env), 'registrations.json');
 }
 
+/** Game save file (mechanics PRD; written via the save-file abstraction). */
+export function gameSavePath(env?: NodeJS.ProcessEnv): string {
+  return path.join(ccidleHome(env), 'game', 'save.json');
+}
+
 export function ensureDirs(env?: NodeJS.ProcessEnv): void {
   fs.mkdirSync(eventsDir(env), { recursive: true });
 }

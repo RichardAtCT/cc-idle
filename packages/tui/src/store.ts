@@ -1,6 +1,10 @@
 import type { ServerMessage, SessionSnapshot } from '@ccidle/shared';
+import { GameStateSchema, type GameState } from '@ccidle/game';
 
 export type ConnectionStatus = 'connecting' | 'connected' | 'disconnected';
+
+/** How many compute samples the region sparkline keeps (one per game-state push). */
+const SPARKLINE_SAMPLES = 60;
 
 export interface AppState {
   connection: ConnectionStatus;
@@ -18,6 +22,10 @@ export interface AppState {
   needsYouQueue: SessionSnapshot[];
   /** sessionId of the currently active needs-you alert, or null when clear. */
   activeAlertSessionId: string | null;
+  /** Latest game state from the daemon (null until the first game-state push). */
+  game: GameState | null;
+  /** Recent per-push compute deltas, per region id, for the stage sparkline. */
+  computeFlow: Record<string, number[]>;
 }
 
 export const initialState: AppState = {
@@ -29,7 +37,9 @@ export const initialState: AppState = {
   ticks: 0,
   lastTool: undefined,
   needsYouQueue: [],
-  activeAlertSessionId: null
+  activeAlertSessionId: null,
+  game: null,
+  computeFlow: {}
 };
 
 function upsertSession(state: AppState, session: SessionSnapshot): AppState {
@@ -92,9 +102,30 @@ export function applyMessage(state: AppState, message: ServerMessage): AppState 
         next.activeAlertSessionId === message.sessionId ? null : next.activeAlertSessionId;
       return { ...next, needsYouQueue: message.queue, activeAlertSessionId };
     }
+    case 'game-state': {
+      const parsed = GameStateSchema.safeParse(message.game);
+      if (!parsed.success) return state; // daemon/tui version skew: ignore, never crash
+      return {
+        ...state,
+        game: parsed.data,
+        computeFlow: pushComputeFlow(state, parsed.data)
+      };
+    }
     default:
       return state;
   }
+}
+
+/** Append each region's compute delta since the previous push to its flow ring. */
+function pushComputeFlow(state: AppState, game: GameState): Record<string, number[]> {
+  const next: Record<string, number[]> = { ...state.computeFlow };
+  for (const region of Object.values(game.regions)) {
+    const previous = state.game?.regions[region.id]?.totals.compute ?? region.totals.compute;
+    const delta = Math.max(0, region.totals.compute - previous);
+    const ring = [...(next[region.id] ?? []), delta];
+    next[region.id] = ring.slice(-SPARKLINE_SAMPLES);
+  }
+  return next;
 }
 
 export type AppAction =

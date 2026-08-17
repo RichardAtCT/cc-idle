@@ -6,6 +6,7 @@ export * from './focus.js';
 export * from './transcripts.js';
 export * from './rotation.js';
 export * from './registrations.js';
+export * from './game-host.js';
 export * from './ipc-server.js';
 export * from './logger.js';
 export * from './daemon.js';
