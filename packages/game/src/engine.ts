@@ -2,7 +2,8 @@ import {
   TokenUsagePayloadSchema,
   distinguishingNames,
   type EventEnvelope,
-  type SessionState
+  type SessionState,
+  type TokenUsagePayload
 } from '@ccidle/shared';
 import { z } from 'zod';
 import { BALANCE, INFRA_TIERS, generationThreshold, hireCap, hireCost, tierCost, type InfraTier } from './balance.js';
@@ -307,13 +308,37 @@ function applyToolCall(draft: GameState, region: Region, envelope: EventEnvelope
  * rolling window, then a log-scaled marginal rate. Grinding tokens visibly
  * yields less; the curve resets as the window rolls over.
  */
+/**
+ * The only tokens the economy is allowed to see.
+ *
+ * A `TokenUsage` payload carries four counters per model; three of them are
+ * prompt-cache accounting. On the 2026-08-17 baseline corpus cache reads ran to
+ * 2.07 billion tokens against 6.2 million output tokens — a 300:1 ratio. Any
+ * resource formula that touched cache counters would therefore be driven almost
+ * entirely by caching behaviour rather than by work Claude actually did, and a
+ * single long-context session would swamp the whole economy.
+ *
+ * Output tokens are the one counter that measures production, so they are the
+ * one counter the economy reads. This function is the boundary: its return type
+ * exposes nothing else, so widening it is a deliberate act rather than an
+ * accident. test/cache-exclusion.test.ts fails if the exclusion is ever broken.
+ */
+export interface EconomyTokens {
+  readonly outputTokens: number;
+}
+
+export function economyTokens(payload: TokenUsagePayload): EconomyTokens {
+  let outputTokens = 0;
+  for (const totals of Object.values(payload.byModel)) {
+    outputTokens += totals.outputTokens;
+  }
+  return { outputTokens };
+}
+
 function applyTokenUsage(draft: GameState, region: Region, envelope: EventEnvelope, nowMs: number, effects: Narration[]): void {
   const parsed = TokenUsagePayloadSchema.safeParse(envelope.payload);
   if (!parsed.success) return;
-  let outputTokens = 0;
-  for (const totals of Object.values(parsed.data.byModel)) {
-    outputTokens += totals.outputTokens;
-  }
+  const { outputTokens } = economyTokens(parsed.data);
   if (outputTokens <= 0) return;
 
   const { fullRateTokensPerWindow: fullN, windowMs, perOutputToken } = BALANCE.compute;
