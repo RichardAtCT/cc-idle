@@ -6,6 +6,9 @@ import { sendRegister } from './register.js';
 import { runUp } from './up.js';
 import { runAttach } from './attach.js';
 import { runReplay } from './replay.js';
+import { runImport } from './import.js';
+import { runBacktest } from './backtest.js';
+import { runCorpusSnapshot } from './corpus.js';
 
 function printHelp(): void {
   console.log(`ccidle — CC Idle launcher & hook installer
@@ -18,6 +21,9 @@ Usage:
   ccidle up [--no-claude]
   ccidle attach [--cwd <dir>]
   ccidle replay <session.jsonl>... [--speed <x>] [--json] [--quiet]
+  ccidle import [--claude-dir <dir>] [--project <path|glob>] [--since <date>] [--until <date>] [--corpus-dir <dir>]
+  ccidle backtest [file...] [--corpus-dir <dir>] [--json] [--md-out <path>] [--json-out <path>]
+  ccidle corpus snapshot [--claude-dir <dir>] [--date <YYYY-MM-DD>]
 `);
 }
 
@@ -133,6 +139,65 @@ export async function main(argv: string[]): Promise<number> {
         speed,
         json: values.json as boolean,
         quiet: values.quiet as boolean
+      });
+    }
+
+    case 'import': {
+      const { values } = parseArgs({
+        args: rest,
+        options: {
+          'claude-dir': { type: 'string' },
+          'corpus-dir': { type: 'string' },
+          project: { type: 'string' },
+          since: { type: 'string' },
+          until: { type: 'string' }
+        }
+      });
+      return runImport({
+        claudeDir: values['claude-dir'] as string | undefined,
+        corpusDir: values['corpus-dir'] as string | undefined,
+        project: values.project as string | undefined,
+        since: values.since as string | undefined,
+        until: values.until as string | undefined
+      });
+    }
+
+    case 'backtest': {
+      const { values, positionals } = parseArgs({
+        args: rest,
+        allowPositionals: true,
+        options: {
+          'corpus-dir': { type: 'string' },
+          json: { type: 'boolean', default: false },
+          'md-out': { type: 'string' },
+          'json-out': { type: 'string' }
+        }
+      });
+      return runBacktest({
+        files: positionals,
+        corpusDir: values['corpus-dir'] as string | undefined,
+        json: values.json as boolean,
+        mdOut: values['md-out'] as string | undefined,
+        jsonOut: values['json-out'] as string | undefined
+      });
+    }
+
+    case 'corpus': {
+      const [action, ...corpusRest] = rest;
+      if (action !== 'snapshot') {
+        console.error('ccidle corpus: only "snapshot" is supported (ccidle corpus snapshot)');
+        return 1;
+      }
+      const { values } = parseArgs({
+        args: corpusRest,
+        options: {
+          'claude-dir': { type: 'string' },
+          date: { type: 'string' }
+        }
+      });
+      return runCorpusSnapshot({
+        claudeDir: values['claude-dir'] as string | undefined,
+        date: values.date as string | undefined
       });
     }
 

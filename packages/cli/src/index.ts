@@ -9,3 +9,7 @@ export * from './daemon-control.js';
 export * from './up.js';
 export * from './attach.js';
 export * from './replay.js';
+export * from './transcript-import.js';
+export * from './import.js';
+export * from './backtest.js';
+export * from './corpus.js';
