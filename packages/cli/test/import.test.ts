@@ -447,4 +447,19 @@ describe('project path helpers', () => {
     const withSub = sources.find((s) => s.mainPath.endsWith(`${SID}.jsonl`));
     expect(withSub?.subagentPaths.map((p) => path.basename(p))).toEqual(['agent-a.jsonl', 'agent-b.jsonl']);
   });
+
+  it('discovers workflow subagent sidecars nested under subagents/workflows/<id>/', () => {
+    const claudeDir = makeClaudeDir();
+    const subagentsDir = path.join(claudeDir, 'projects', '-home-richard-project-x', SID, 'subagents');
+    const workflowDir = path.join(subagentsDir, 'workflows', 'wf_88c66ca6-393');
+    fs.mkdirSync(workflowDir, { recursive: true });
+    fs.writeFileSync(path.join(subagentsDir, 'agent-flat.jsonl'), '');
+    fs.writeFileSync(path.join(workflowDir, 'agent-nested.jsonl'), '');
+    const sources = discoverSessions(claudeDir);
+    const withSub = sources.find((s) => s.mainPath.endsWith(`${SID}.jsonl`));
+    expect(withSub?.subagentPaths.map((p) => path.basename(p)).sort()).toEqual([
+      'agent-flat.jsonl',
+      'agent-nested.jsonl'
+    ]);
+  });
 });
