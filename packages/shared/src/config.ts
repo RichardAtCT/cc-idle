@@ -68,7 +68,9 @@ export function applyEnvOverrides(config: Config, env: NodeJS.ProcessEnv = proce
     const parts = name.slice('CCIDLE_'.length).split('_');
     if (parts.length < 2) continue;
     const sectionName = parts[0]!.toLowerCase();
-    const keyName = parts.slice(1).join('_').toLowerCase();
+    // Normalize by dropping underscores so both CCIDLE_LOG_RETENTIONDAYS and
+    // CCIDLE_LOG_RETENTION_DAYS match the camelCase `retentionDays` key.
+    const keyName = parts.slice(1).join('').toLowerCase();
     const section = next[sectionName];
     if (!section || typeof section !== 'object') continue;
     const key = Object.keys(section).find((k) => k.toLowerCase() === keyName);

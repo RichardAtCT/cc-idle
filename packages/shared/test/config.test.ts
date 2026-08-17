@@ -34,6 +34,15 @@ describe('config', () => {
     expect(config.alerts.bell).toBe(false);
   });
 
+  it('matches multi-word keys with or without underscores', () => {
+    const config = applyEnvOverrides(DEFAULT_CONFIG, {
+      CCIDLE_LOG_RETENTION_DAYS: '7',
+      CCIDLE_FOCUS_GRACE_MS: '2000'
+    });
+    expect(config.log.retentionDays).toBe(7);
+    expect(config.focus.graceMs).toBe(2000);
+  });
+
   it('ignores unknown or malformed env overrides', () => {
     const config = applyEnvOverrides(DEFAULT_CONFIG, {
       CCIDLE_NOPE_KEY: 'x',
