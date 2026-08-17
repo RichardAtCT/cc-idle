@@ -3,6 +3,7 @@ import {
   ensureDirs,
   eventsDir,
   eventFilePath,
+  gameSavePath,
   socketPath,
   pidFilePath,
   daemonLogPath,
@@ -10,7 +11,9 @@ import {
   type SessionSnapshot,
   type SessionState
 } from '@ccidle/shared';
+import type { GameState } from '@ccidle/game';
 import { Watcher } from './watcher.js';
+import { GameHost } from './game-host.js';
 import { applyEvent, checkStale, initSnapshot } from './state-machine.js';
 import { FocusEngine, systemClock, type PaneResolver } from './focus.js';
 import { RealTmuxClient, type TmuxClient } from './tmux.js';
@@ -77,8 +80,35 @@ export async function startDaemon(env: NodeJS.ProcessEnv = process.env): Promise
   const transcripts = new TranscriptReader();
   const tmuxAvailable = await tmux.isAvailable();
 
+  // Game host: throttle state pushes so event bursts (startup replay, busy
+  // turns) don't flood connected TUIs with full-state broadcasts.
+  const GAME_BROADCAST_THROTTLE_MS = 150;
+  let pendingGameState: GameState | null = null;
+  let gameBroadcastTimer: NodeJS.Timeout | null = null;
+  const broadcastGameState = (game: GameState): void => {
+    if (gameBroadcastTimer) {
+      pendingGameState = game;
+      return;
+    }
+    ipc.broadcastGameState(game as unknown as Record<string, unknown>);
+    gameBroadcastTimer = setTimeout(() => {
+      gameBroadcastTimer = null;
+      if (pendingGameState) {
+        const next = pendingGameState;
+        pendingGameState = null;
+        broadcastGameState(next);
+      }
+    }, GAME_BROADCAST_THROTTLE_MS);
+    gameBroadcastTimer.unref?.();
+  };
+  const gameHost = new GameHost({
+    savePath: gameSavePath(env),
+    broadcast: broadcastGameState,
+    logger
+  });
+
   const watcher = new Watcher(eventsDir(env));
-  const rotator = new Rotator(eventsDir(env), watcher, logger);
+  const rotator = new Rotator(eventsDir(env), watcher, logger, (filePath) => gameHost.handleFileReset(filePath));
 
   const paneResolver: PaneResolver = {
     async ccPaneTarget(sessionId) {
@@ -135,17 +165,20 @@ export async function startDaemon(env: NodeJS.ProcessEnv = process.env): Promise
       },
       onFocusSession: async (sessionId) => {
         await focusEngine.focusSession(sessionId);
-      }
+      },
+      gameState: () => gameHost.state() as unknown as Record<string, unknown>,
+      onGameAction: (action) => gameHost.handleAction(action)
     },
     logger
   );
 
   async function transition(sessionId: string, from: SessionState, to: SessionState): Promise<void> {
     if (from === to) return;
+    gameHost.handleStateChange(sessionId, to);
     await focusEngine.onTransition(sessionId, from, to);
   }
 
-  watcher.on('event', (envelope) => {
+  watcher.on('event', (envelope, filePath) => {
     const sessionId = envelope.session_id;
     const nowIso = new Date().toISOString();
     const prev = sessions.get(sessionId) ?? initSnapshot(sessionId, nowIso);
@@ -159,6 +192,7 @@ export async function startDaemon(env: NodeJS.ProcessEnv = process.env): Promise
     }
 
     ipc.broadcastEvent(envelope);
+    gameHost.handleEnvelope(envelope, filePath);
 
     if (next.state !== prevState) {
       if (next.state === 'HUMAN_ACTIVE') focusEngine.seedHumanActive(sessionId);
@@ -173,6 +207,7 @@ export async function startDaemon(env: NodeJS.ProcessEnv = process.env): Promise
   });
 
   watcher.on('truncated', (filePath) => {
+    gameHost.handleFileReset(filePath);
     logger.warn(`event file truncated externally: ${filePath}`);
   });
 
@@ -226,6 +261,8 @@ export async function startDaemon(env: NodeJS.ProcessEnv = process.env): Promise
     stopped = true;
     clearInterval(staleTimer);
     clearInterval(rotationTimer);
+    if (gameBroadcastTimer) clearTimeout(gameBroadcastTimer);
+    gameHost.stop();
     focusEngine.dispose();
     await ipc.stop();
     await watcher.stop();

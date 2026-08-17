@@ -47,12 +47,23 @@ export const AlertMessageSchema = z.object({
   queue: z.array(SessionSnapshotSchema)
 });
 
+/**
+ * Full game state push (mechanics PRD). The payload is opaque at this layer —
+ * @ccidle/game owns the real schema — so shared stays decoupled from game
+ * mechanics and the two can evolve independently.
+ */
+export const GameStateMessageSchema = z.object({
+  type: z.literal('game-state'),
+  game: z.record(z.unknown())
+});
+
 export const ServerMessageSchema = z.discriminatedUnion('type', [
   HelloMessageSchema,
   SessionStateMessageSchema,
   EventMessageSchema,
   StatusMessageSchema,
-  AlertMessageSchema
+  AlertMessageSchema,
+  GameStateMessageSchema
 ]);
 export type ServerMessage = z.infer<typeof ServerMessageSchema>;
 
@@ -78,10 +89,17 @@ export const FocusSessionMessageSchema = z.object({
   sessionId: z.string()
 });
 
+/** A player decision from the TUI (buy, hire, ack, ship, …). Opaque here; @ccidle/game validates. */
+export const GameActionMessageSchema = z.object({
+  type: z.literal('game-action'),
+  action: z.record(z.unknown())
+});
+
 export const ClientMessageSchema = z.discriminatedUnion('type', [
   CommandMessageSchema,
   RegisterMessageSchema,
-  FocusSessionMessageSchema
+  FocusSessionMessageSchema,
+  GameActionMessageSchema
 ]);
 export type ClientMessage = z.infer<typeof ClientMessageSchema>;
 

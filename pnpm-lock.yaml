@@ -29,6 +29,9 @@ importers:
       '@ccidle/daemon':
         specifier: workspace:*
         version: link:../daemon
+      '@ccidle/game':
+        specifier: workspace:*
+        version: link:../game
       '@ccidle/shared':
         specifier: workspace:*
         version: link:../shared
@@ -38,12 +41,24 @@ importers:
 
   packages/daemon:
     dependencies:
+      '@ccidle/game':
+        specifier: workspace:*
+        version: link:../game
       '@ccidle/shared':
         specifier: workspace:*
         version: link:../shared
       chokidar:
         specifier: ^4.0.3
         version: 4.0.3
+      zod:
+        specifier: ^3.24.0
+        version: 3.25.76
+
+  packages/game:
+    dependencies:
+      '@ccidle/shared':
+        specifier: workspace:*
+        version: link:../shared
       zod:
         specifier: ^3.24.0
         version: 3.25.76
@@ -56,6 +71,9 @@ importers:
 
   packages/tui:
     dependencies:
+      '@ccidle/game':
+        specifier: workspace:*
+        version: link:../game
       '@ccidle/shared':
         specifier: workspace:*
         version: link:../shared

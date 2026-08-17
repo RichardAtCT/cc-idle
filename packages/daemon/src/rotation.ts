@@ -19,7 +19,9 @@ export class Rotator {
   constructor(
     private readonly dir: string,
     private readonly watcher: Pick<Watcher, 'resetOffset'>,
-    private readonly logger?: RotationLogger
+    private readonly logger?: RotationLogger,
+    /** Extra consumers (e.g. the game host) that track per-file positions. */
+    private readonly onRotated?: (filePath: string) => void
   ) {}
 
   /** Run one rotation pass: archive oversized live files, prune stale archives. */
@@ -60,6 +62,7 @@ export class Rotator {
       fs.appendFileSync(archivePath, content);
       fs.truncateSync(filePath, 0);
       this.watcher.resetOffset(filePath, 0);
+      this.onRotated?.(filePath);
       this.logger?.info(`rotated ${filePath} -> ${archivePath} (${content.byteLength} bytes)`);
     } catch (error) {
       this.logger?.warn(`rotation failed for ${filePath}: ${(error as Error).message}`);

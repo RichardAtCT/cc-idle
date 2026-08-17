@@ -5,6 +5,7 @@ import { runDoctor, formatDoctorReport, doctorExitCode } from './doctor.js';
 import { sendRegister } from './register.js';
 import { runUp } from './up.js';
 import { runAttach } from './attach.js';
+import { runReplay } from './replay.js';
 
 function printHelp(): void {
   console.log(`ccidle — CC Idle launcher & hook installer
@@ -16,6 +17,7 @@ Usage:
   ccidle register --role cc|game [--pane <id>] [--cwd <dir>] [--session <id>]
   ccidle up [--no-claude]
   ccidle attach [--cwd <dir>]
+  ccidle replay <session.jsonl>... [--speed <x>] [--json] [--quiet]
 `);
 }
 
@@ -102,6 +104,36 @@ export async function main(argv: string[]): Promise<number> {
       });
       await runAttach({ cwd: values.cwd as string | undefined });
       return 0;
+    }
+
+    case 'replay': {
+      const { values, positionals } = parseArgs({
+        args: rest,
+        allowPositionals: true,
+        options: {
+          speed: { type: 'string' },
+          json: { type: 'boolean', default: false },
+          quiet: { type: 'boolean', default: false }
+        }
+      });
+      if (positionals.length === 0) {
+        console.error('ccidle replay: at least one event file is required');
+        return 1;
+      }
+      let speed: number | undefined;
+      if (values.speed !== undefined) {
+        speed = Number(values.speed);
+        if (!Number.isFinite(speed) || speed <= 0) {
+          console.error('ccidle replay: --speed must be a positive number');
+          return 1;
+        }
+      }
+      return runReplay({
+        files: positionals,
+        speed,
+        json: values.json as boolean,
+        quiet: values.quiet as boolean
+      });
     }
 
     case '-h':

@@ -1,11 +1,8 @@
 {
-  "name": "@ccidle/cli",
+  "name": "@ccidle/game",
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "bin": {
-    "ccidle": "./dist/cli.js"
-  },
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",
@@ -15,12 +12,10 @@
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "test": "vitest run --passWithNoTests"
+    "test": "vitest run"
   },
   "dependencies": {
     "@ccidle/shared": "workspace:*",
-    "@ccidle/daemon": "workspace:*",
-    "@ccidle/game": "workspace:*",
     "zod": "^3.24.0"
   }
 }

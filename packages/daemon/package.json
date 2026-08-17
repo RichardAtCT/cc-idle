@@ -19,6 +19,7 @@
   },
   "dependencies": {
     "@ccidle/shared": "workspace:*",
+    "@ccidle/game": "workspace:*",
     "chokidar": "^4.0.3",
     "zod": "^3.24.0"
   }
