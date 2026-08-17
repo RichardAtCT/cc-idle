@@ -442,12 +442,12 @@ function spawnIncident(draft: GameState, region: Region, nowMs: number, effects:
     draft.resources.engineering += BALANCE.engineering.postMortem;
     draft.stats.engineeringFromPostMortems += BALANCE.engineering.postMortem;
     region.totals.engineering += BALANCE.engineering.postMortem;
-    narrate(draft, effects, nowMs, `⚡ ${title} in "${region.name}" — self-healed (+${BALANCE.engineering.postMortem} eng)`, 'info');
+    narrate(draft, effects, nowMs, `↯ ${title} in "${region.name}" — self-healed (+${BALANCE.engineering.postMortem} eng)`, 'info');
     return;
   }
 
   region.incidents.push({ id: `inc-${seq}`, title, startedAt: new Date(nowMs).toISOString() });
-  narrate(draft, effects, nowMs, `⚡ incident in "${region.name}": ${title} — [a] to acknowledge`, 'bad');
+  narrate(draft, effects, nowMs, `↯ incident in "${region.name}": ${title} — [a] to acknowledge`, 'bad');
 }
 
 // ---- player actions ----
