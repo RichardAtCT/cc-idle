@@ -152,6 +152,11 @@ export async function runDoctor(opts: DoctorOptions = {}): Promise<DoctorReport>
   }
   checks.push({ name: 'hooks-installed', status: hooksStatus, detail: hooksDetail });
 
+  // transcript retention (backtesting handoff §4): CC's cleanup sweep deletes
+  // transcripts after cleanupPeriodDays — too short a period eats the tuning
+  // corpus. Warn only; NEVER edit ~/.claude/settings.json automatically.
+  checks.push(transcriptRetentionCheck(settingsPath));
+
   // daemon
   const pidPath = pidFilePath(env);
   const sockPath = socketPath(env);
@@ -183,6 +188,38 @@ export async function runDoctor(opts: DoctorOptions = {}): Promise<DoctorReport>
   }
 
   return report;
+}
+
+const RETENTION_FIX = `set "cleanupPeriodDays" to a large value (e.g. 3650, not 0) so history survives for backtesting; run 'ccidle corpus snapshot' to archive what exists today`;
+
+export function transcriptRetentionCheck(settingsPath: string): DoctorCheck {
+  const name = 'transcript-retention';
+  let settings: ClaudeSettingsWithCleanup;
+  try {
+    settings = readSettings(settingsPath) as ClaudeSettingsWithCleanup;
+  } catch (err) {
+    return { name, status: 'warn', detail: (err as Error).message };
+  }
+  const days = settings.cleanupPeriodDays;
+  if (typeof days !== 'number' || !Number.isFinite(days)) {
+    return {
+      name,
+      status: 'warn',
+      detail: `cleanupPeriodDays is not set in ${settingsPath} — CC's default sweep will delete old transcripts; ${RETENTION_FIX}`
+    };
+  }
+  if (days <= 30) {
+    return {
+      name,
+      status: 'warn',
+      detail: `cleanupPeriodDays=${days} (≤30) in ${settingsPath} — historical transcripts are being swept; ${RETENTION_FIX}`
+    };
+  }
+  return { name, status: 'ok', detail: `cleanupPeriodDays=${days} in ${settingsPath}` };
+}
+
+interface ClaudeSettingsWithCleanup {
+  cleanupPeriodDays?: unknown;
 }
 
 async function fireTestEvent(env: NodeJS.ProcessEnv): Promise<DoctorReport['fireTestEvent']> {

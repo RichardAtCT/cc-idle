@@ -53,6 +53,28 @@ export function gameSavePath(env?: NodeJS.ProcessEnv): string {
   return path.join(ccidleHome(env), 'game', 'save.json');
 }
 
+/** Imported historical sessions (backtesting corpus), one <session_id>.jsonl each. */
+export function corpusDir(env?: NodeJS.ProcessEnv): string {
+  return path.join(ccidleHome(env), 'corpus');
+}
+
+/** Import idempotency manifest (source hash → output mapping). */
+export function corpusManifestPath(env?: NodeJS.ProcessEnv): string {
+  return path.join(corpusDir(env), 'manifest.json');
+}
+
+/** Raw transcript snapshots, one dated tree per `ccidle corpus snapshot` run. */
+export function corpusRawDir(env?: NodeJS.ProcessEnv): string {
+  return path.join(ccidleHome(env), 'corpus-raw');
+}
+
+/** Claude Code's own data dir — read-only territory for ccidle. */
+export function defaultClaudeDir(env: NodeJS.ProcessEnv = process.env): string {
+  return env.CLAUDE_CONFIG_DIR && env.CLAUDE_CONFIG_DIR !== ''
+    ? env.CLAUDE_CONFIG_DIR
+    : path.join(os.homedir(), '.claude');
+}
+
 export function ensureDirs(env?: NodeJS.ProcessEnv): void {
   fs.mkdirSync(eventsDir(env), { recursive: true });
 }
