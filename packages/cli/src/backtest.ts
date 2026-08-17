@@ -9,6 +9,9 @@ import {
 import {
   TokenUsagePayloadSchema,
   corpusDir as defaultCorpusDir,
+  distinguishingNames,
+  loadConfig,
+  matchingGlob,
   type EventEnvelope
 } from '@ccidle/shared';
 
@@ -198,6 +201,13 @@ export class TelemetrySink implements BacktestSink {
     const sessions = [...this.sessions.values()].sort((a, b) => a.sessionId.localeCompare(b.sessionId));
     const projects = [...this.projects.values()].sort((a, b) => a.project.localeCompare(b.project));
 
+    // Several checkouts can share a leaf name; extend each until it is unique
+    // so the project table never shows the same label twice.
+    const displayNames = distinguishingNames(projects.map((p) => p.project));
+    for (const p of projects) {
+      if (p.project !== UNKNOWN_PROJECT) p.name = displayNames.get(p.project) ?? p.name;
+    }
+
     const totals = {
       events: this.events,
       byEvent: sortRecord(this.byEvent),
@@ -356,8 +366,27 @@ export interface BacktestOptions {
   /** Also write the JSON report to this path. */
   jsonOut?: string;
   extraSinks?: BacktestSink[];
+  /**
+   * Working-directory globs to drop. When given (even as an empty array) this
+   * replaces the config defaults, so `--exclude ''` replays the whole corpus.
+   */
+  exclude?: string[];
+  /** Drop sessions with fewer than this many turns (UserPromptSubmit events). */
+  minTurns?: number;
   env?: NodeJS.ProcessEnv;
   out?: (line: string) => void;
+}
+
+/** What corpus hygiene removed, reported so filtering is never silent. */
+export interface ExclusionSummary {
+  rules: string[];
+  minTurns: number | null;
+  sessionsExcluded: number;
+  eventsExcluded: number;
+  /** Rule → sessions dropped. `min-turns:<n>` is reported as a rule too. */
+  byRule: Record<string, number>;
+  sessionsKept: number;
+  eventsKept: number;
 }
 
 export interface BacktestReport {
@@ -368,7 +397,58 @@ export interface BacktestReport {
     generation: unknown;
   };
   sinks: Record<string, unknown>;
+  excluded: ExclusionSummary;
   gaps: string[];
+}
+
+/**
+ * Applies corpus hygiene to per-session timelines. Each corpus file is one
+ * session, so filtering happens whole-file: a session is either replayed or it
+ * is not, and no partial timeline ever reaches the engine.
+ */
+export function applyCorpusFilters(
+  timelines: readonly EventEnvelope[][],
+  excludeGlobs: readonly string[],
+  minTurns: number | null
+): { kept: EventEnvelope[][]; summary: ExclusionSummary } {
+  const kept: EventEnvelope[][] = [];
+  const summary: ExclusionSummary = {
+    rules: [...excludeGlobs],
+    minTurns,
+    sessionsExcluded: 0,
+    eventsExcluded: 0,
+    byRule: {},
+    sessionsKept: 0,
+    eventsKept: 0
+  };
+
+  const drop = (rule: string, events: number): void => {
+    summary.sessionsExcluded += 1;
+    summary.eventsExcluded += events;
+    summary.byRule[rule] = (summary.byRule[rule] ?? 0) + 1;
+  };
+
+  for (const timeline of timelines) {
+    if (timeline.length === 0) continue;
+    const cwd = timeline.find((e) => e.cwd)?.cwd;
+    const rule = cwd ? matchingGlob(cwd, excludeGlobs) : null;
+    if (rule) {
+      drop(rule, timeline.length);
+      continue;
+    }
+    if (minTurns !== null) {
+      const turns = timeline.reduce((n, e) => (e.event === 'UserPromptSubmit' ? n + 1 : n), 0);
+      if (turns < minTurns) {
+        drop(`min-turns:${minTurns}`, timeline.length);
+        continue;
+      }
+    }
+    kept.push(timeline);
+    summary.sessionsKept += 1;
+    summary.eventsKept += timeline.length;
+  }
+
+  return { kept, summary };
 }
 
 function corpusFiles(dir: string): string[] {
@@ -405,9 +485,18 @@ export async function runBacktest(options: BacktestOptions = {}): Promise<number
     timelines.push(parseEventFile(content));
   }
 
-  const envelopes = mergeTimelines(timelines);
+  const config = loadConfig(undefined, env);
+  const excludeGlobs = (options.exclude ?? config.corpus.exclude).filter((g) => g !== '');
+  const minTurns = options.minTurns ?? null;
+  const { kept, summary: excluded } = applyCorpusFilters(timelines, excludeGlobs, minTurns);
+
+  const envelopes = mergeTimelines(kept);
   if (envelopes.length === 0) {
-    console.error('ccidle backtest: no parseable events in the corpus');
+    console.error(
+      excluded.sessionsExcluded > 0
+        ? `ccidle backtest: corpus hygiene excluded all ${excluded.sessionsExcluded} session(s); relax --exclude/--min-turns`
+        : 'ccidle backtest: no parseable events in the corpus'
+    );
     return 1;
   }
 
@@ -424,6 +513,7 @@ export async function runBacktest(options: BacktestOptions = {}): Promise<number
     telemetry: telemetry.summary(),
     economy: { stats: state.stats, resources: state.resources, generation: state.generation },
     sinks: Object.fromEntries(options.extraSinks?.map((s) => [s.name, s.summary()]) ?? []),
+    excluded,
     gaps: [...IMPORT_GAPS]
   };
 
@@ -441,6 +531,20 @@ export async function runBacktest(options: BacktestOptions = {}): Promise<number
   return 0;
 }
 
+/** One line stating what hygiene removed, present even when it removed nothing. */
+export function formatExcluded(e: ExclusionSummary): string {
+  const active: string[] = [...e.rules];
+  if (e.minTurns !== null) active.push(`min-turns:${e.minTurns}`);
+  if (active.length === 0) return 'Excluded: none (no hygiene rules active)';
+  if (e.sessionsExcluded === 0) {
+    return `Excluded: 0 sessions; rules active: ${active.map((r) => `\`${r}\``).join(', ')}`;
+  }
+  return (
+    `Excluded: ${e.sessionsExcluded} session(s) / ${e.eventsExcluded.toLocaleString('en-US')} event(s) ` +
+    `by ${active.map((r) => `\`${r}\``).join(', ')} — ${e.sessionsKept} session(s) replayed`
+  );
+}
+
 function formatTokens(t: TokenTotals): string {
   return `in ${t.inputTokens.toLocaleString('en-US')} · out ${t.outputTokens.toLocaleString('en-US')} · cache-r ${t.cacheReadTokens.toLocaleString('en-US')} · cache-w ${t.cacheWriteTokens.toLocaleString('en-US')}`;
 }
@@ -452,11 +556,22 @@ export function formatBacktestMarkdown(report: BacktestReport, fileCount: number
   lines.push('');
   lines.push('## Corpus');
   lines.push('');
-  lines.push(`- Event files replayed: ${fileCount}`);
+  lines.push(`- Event files read: ${fileCount}`);
   lines.push(`- Sessions: ${t.corpus.sessions}`);
   lines.push(`- Events: ${t.corpus.events}`);
   lines.push(`- Span: ${t.corpus.firstEvent ?? 'n/a'} → ${t.corpus.lastEvent ?? 'n/a'} (${t.corpus.spanDays} day(s))`);
+  lines.push(`- ${formatExcluded(report.excluded)}`);
   lines.push('');
+  if (report.excluded.sessionsExcluded > 0) {
+    lines.push('### Excluded by rule');
+    lines.push('');
+    lines.push('| Rule | Sessions |');
+    lines.push('|---|---:|');
+    for (const [rule, n] of Object.entries(report.excluded.byRule).sort(([a], [b]) => a.localeCompare(b))) {
+      lines.push(`| \`${rule}\` | ${n} |`);
+    }
+    lines.push('');
+  }
   lines.push('## Totals');
   lines.push('');
   lines.push(`- Turns (UserPromptSubmit): ${t.totals.turns}`);

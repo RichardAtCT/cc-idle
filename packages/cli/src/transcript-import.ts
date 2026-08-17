@@ -75,6 +75,12 @@ export interface SynthesisResult {
   stats: SynthesisStats;
   firstTs: string | null;
   lastTs: string | null;
+  /**
+   * The session's working directory as recorded in the transcript. This is the
+   * real path; CC's project folder name is a lossy encoding (every
+   * non-alphanumeric character becomes '-'), so exclusion globs match on this.
+   */
+  cwd: string | null;
 }
 
 export type Redactor = (value: string) => string;
@@ -468,6 +474,7 @@ export function synthesizeSessionEvents(mainContent: string, options: Synthesize
     envelopes: ordered.map((e) => e.envelope),
     stats: synth.stats,
     firstTs: hasSpan ? new Date(synth.firstTsMs).toISOString() : null,
-    lastTs: hasSpan ? new Date(synth.lastTsMs).toISOString() : null
+    lastTs: hasSpan ? new Date(synth.lastTsMs).toISOString() : null,
+    cwd: sessionCwd ?? null
   };
 }

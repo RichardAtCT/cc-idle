@@ -4,3 +4,5 @@ export * from './config.js';
 export * from './paths.js';
 export * from './ipc.js';
 export * from './save.js';
+export * from './glob.js';
+export * from './names.js';

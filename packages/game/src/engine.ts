@@ -1,5 +1,6 @@
 import {
   TokenUsagePayloadSchema,
+  distinguishingNames,
   type EventEnvelope,
   type SessionState
 } from '@ccidle/shared';
@@ -151,6 +152,20 @@ function regionName(cwd: string): string {
   return base === '' ? cwd : base;
 }
 
+/**
+ * Re-labels every region so no two display the same name. Two checkouts called
+ * "opus" become "01-bugfix/opus" and "03-refactor/opus"; a region with a name
+ * of its own keeps its bare leaf.
+ */
+function refreshRegionNames(draft: GameState): void {
+  const ids = Object.keys(draft.regions).filter((id) => id !== UNASSIGNED_REGION_ID);
+  const names = distinguishingNames(ids);
+  for (const id of ids) {
+    const region = draft.regions[id];
+    if (region) region.name = names.get(id) ?? regionName(id);
+  }
+}
+
 function ensureRegion(draft: GameState, effects: Narration[], regionId: string, nowMs: number): Region {
   const existing = draft.regions[regionId];
   if (existing) return existing;
@@ -167,6 +182,8 @@ function ensureRegion(draft: GameState, effects: Narration[], regionId: string, 
     totals: { compute: 0, engineering: 0, research: 0, outputTokens: 0, incidents: 0 }
   };
   draft.regions[regionId] = region;
+  // A new region can collide with an existing leaf name, so both get relabelled.
+  refreshRegionNames(draft);
   narrate(draft, effects, nowMs, `⛏ region "${region.name}" founded`, 'ceremony');
   return region;
 }
