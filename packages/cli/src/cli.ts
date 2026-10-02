@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 import { parseArgs } from 'node:util';
+import { isEntryPoint } from '@ccidle/shared';
 import { runInstall, runUninstall } from './installer.js';
 import { runDoctor, formatDoctorReport, doctorExitCode } from './doctor.js';
 import { sendRegister } from './register.js';
@@ -250,8 +251,7 @@ export async function main(argv: string[]): Promise<number> {
   }
 }
 
-const isMain = process.argv[1] && import.meta.url === `file://${process.argv[1]}`;
-if (isMain) {
+if (isEntryPoint(import.meta.url)) {
   main(process.argv.slice(2))
     .then((code) => {
       process.exitCode = code;
