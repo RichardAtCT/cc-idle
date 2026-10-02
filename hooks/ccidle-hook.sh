@@ -26,7 +26,7 @@ event_name="${1:-Unknown}"
   # BSD/macOS date, which leaves a literal "N" or errors on %3N).
   ts="$(date -u +%Y-%m-%dT%H:%M:%S.%3NZ 2>/dev/null)"
   case "$ts" in
-    *N|"") ts="$(date -u +%Y-%m-%dT%H:%M:%SZ 2>/dev/null)" ;;
+    *N*|"") ts="$(date -u +%Y-%m-%dT%H:%M:%SZ 2>/dev/null)" ;;
   esac
   [ -n "$ts" ] || ts="1970-01-01T00:00:00Z"
 
