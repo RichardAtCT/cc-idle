@@ -4676,7 +4676,7 @@ function applyTrainingRun(draft, region, envelope2, nowMs, effects) {
   const lab = BALANCE.lab;
   const minutes = Math.min(lab.trainingMaxMinutes, subagentMinutes(envelope2.payload) ?? lab.trainingDefaultMinutes);
   const dataFraction = lab.trainingDataCost > 0 ? Math.min(1, draft.resources.research / lab.trainingDataCost) : 1;
-  const consumed = lab.trainingDataCost * dataFraction;
+  const consumed = Math.min(draft.resources.research, lab.trainingDataCost);
   draft.resources.research -= consumed;
   draft.stats.researchSpent += consumed;
   const efficiency = lab.trainingMinEfficiency + (1 - lab.trainingMinEfficiency) * dataFraction;
