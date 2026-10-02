@@ -1,0 +1,11 @@
+{
+  "name": "cc-idle",
+  "version": "0.1.0",
+  "description": "An idle game that runs beside Claude Code, fed only by the work Claude does for you",
+  "author": { "name": "RichardAtCT" },
+  "homepage": "https://github.com/RichardAtCT/cc-idle",
+  "repository": "https://github.com/RichardAtCT/cc-idle",
+  "license": "MIT",
+  "keywords": ["game", "idle", "mod"],
+  "types": "./types/index.d.ts"
+}

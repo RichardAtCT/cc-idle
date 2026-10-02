@@ -27,6 +27,9 @@ jobs:
 
       - run: pnpm build
 
+      - name: Check the mod bundle is up to date
+        run: git diff --exit-code -- plugins/cc-idle/hooks/register.js
+
       - run: pnpm -r test
 
       - name: Validate hook scripts (if present)
