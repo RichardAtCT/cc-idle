@@ -433,7 +433,9 @@ function applyTrainingRun(draft: GameState, region: Region, envelope: EventEnvel
 
   // Research Data fuels the run but never blocks it (§1.4): efficiency scales.
   const dataFraction = lab.trainingDataCost > 0 ? Math.min(1, draft.resources.research / lab.trainingDataCost) : 1;
-  const consumed = lab.trainingDataCost * dataFraction;
+  // Not cost × fraction: that can round one ulp above research and drive it
+  // negative, which the save schema then rejects.
+  const consumed = Math.min(draft.resources.research, lab.trainingDataCost);
   draft.resources.research -= consumed;
   draft.stats.researchSpent += consumed;
   const efficiency = lab.trainingMinEfficiency + (1 - lab.trainingMinEfficiency) * dataFraction;
