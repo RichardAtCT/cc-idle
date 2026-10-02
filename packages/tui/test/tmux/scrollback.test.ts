@@ -25,8 +25,12 @@ const SESSION = 'ccidle-scrollback-test';
 /** The harness's stderr, so a crash shows up in the failure message. */
 const STDERR_FILE = path.join(os.tmpdir(), 'ccidle-scrollback-harness.err');
 
+/**
+ * CI=false because Ink draws no live frames when it detects CI (is-in-ci), and
+ * this test is about live frames. tmux passes the runner's CI=true through.
+ */
 function harnessCommand(runMs: number): string {
-  return `RUN_MS=${runMs} node ${JSON.stringify(HARNESS)} ${JSON.stringify(FIXTURE)} 2>${JSON.stringify(STDERR_FILE)}`;
+  return `CI=false RUN_MS=${runMs} node ${JSON.stringify(HARNESS)} ${JSON.stringify(FIXTURE)} 2>${JSON.stringify(STDERR_FILE)}`;
 }
 
 function harnessStderr(): string {
