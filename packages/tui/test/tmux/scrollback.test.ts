@@ -1,5 +1,7 @@
 import { describe, it, expect, afterEach } from 'vitest';
 import { execFileSync, spawnSync } from 'node:child_process';
+import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -20,6 +22,20 @@ const here = path.dirname(fileURLToPath(import.meta.url));
 const HARNESS = path.join(here, 'render-harness.mjs');
 const FIXTURE = path.resolve(here, '../fixtures/scrollback-session.jsonl');
 const SESSION = 'ccidle-scrollback-test';
+/** The harness's stderr, so a crash shows up in the failure message. */
+const STDERR_FILE = path.join(os.tmpdir(), 'ccidle-scrollback-harness.err');
+
+function harnessCommand(runMs: number): string {
+  return `RUN_MS=${runMs} node ${JSON.stringify(HARNESS)} ${JSON.stringify(FIXTURE)} 2>${JSON.stringify(STDERR_FILE)}`;
+}
+
+function harnessStderr(): string {
+  try {
+    return fs.readFileSync(STDERR_FILE, 'utf8').trim() || '(empty)';
+  } catch {
+    return '(none)';
+  }
+}
 
 /** Ticks to observe. The App repaints once a second, so this is ~12 repaints. */
 const OBSERVED_TICKS = 12;
@@ -73,13 +89,14 @@ describeTmux('TUI scrollback', () => {
       '120',
       '-y',
       String(PANE_ROWS),
-      `RUN_MS=${(OBSERVED_TICKS + 8) * 1000} node ${JSON.stringify(HARNESS)} ${JSON.stringify(FIXTURE)}`
+      harnessCommand((OBSERVED_TICKS + 8) * 1000)
     );
 
     // Let the harness render its first full frame before taking the baseline.
     await sleep(2500);
+    // A blank pane also has PANE_ROWS lines and never grows, so check the frame.
+    expect(tmux('capture-pane', '-t', SESSION, '-p'), `harness stderr: ${harnessStderr()}`).toContain('CC IDLE');
     const baseline = historyLines();
-    expect(baseline, 'the TUI should have rendered something').toBeGreaterThan(1);
 
     await sleep(OBSERVED_TICKS * 1000);
     const after = historyLines();
@@ -111,7 +128,7 @@ describeTmux('TUI scrollback', () => {
       '120',
       '-y',
       String(PANE_ROWS),
-      `RUN_MS=20000 node ${JSON.stringify(HARNESS)} ${JSON.stringify(FIXTURE)}`
+      harnessCommand(20_000)
     );
 
     await sleep(2500);
@@ -123,8 +140,8 @@ describeTmux('TUI scrollback', () => {
 
     // The session strip's elapsed clock advances every second, so a live frame
     // must differ; an identical frame would mean the UI had stopped repainting.
+    expect(second, `harness stderr: ${harnessStderr()}`).toContain('CC IDLE');
     expect(second).not.toBe(first);
-    expect(second).toContain('CC IDLE');
     expect(historyLines()).toBe(historyBefore);
   }, 30_000);
 });
