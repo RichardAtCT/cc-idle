@@ -1,0 +1,15 @@
+{
+  "name": "cc-idle",
+  "owner": { "name": "RichardAtCT" },
+  "metadata": {
+    "description": "CC Idle: an idle game that runs beside Claude Code, fed only by the work Claude does for you"
+  },
+  "plugins": [
+    {
+      "name": "cc-idle",
+      "source": "./plugins/cc-idle",
+      "description": "An idle game in a pane beside the transcript: Claude's tokens, tool calls and finished turns build your hyperscaler and frontier lab",
+      "category": "fun"
+    }
+  ]
+}

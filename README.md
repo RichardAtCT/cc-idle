@@ -36,7 +36,21 @@ CC Idle bridges Claude Code to a terminal game through four decoupled components
 - **ccidled daemon** maintains per-session state (HUMAN_ACTIVE, CC_WORKING, STALE), controls tmux focus, and exposes an IPC socket for the TUI.
 - **ccidle-tui** (Ink/React CLI) renders the session strip, tick counter, and alert overlays, connecting over the daemon socket.
 
-## Quick Start
+## Quick Start: as a Claude Code mod
+
+With Claude Code v2.1.287 or later, CC Idle installs as a [mod](https://code.claude.com/docs/en/plugins/mods/overview)
+and runs in a pane beside the transcript. You don't need tmux, the daemon or the hook shims:
+
+```text
+/plugin marketplace add RichardAtCT/cc-idle
+/plugin install cc-idle@cc-idle
+```
+
+Type `/idle` to open the game and take the keyboard. Esc hands it back. See
+[plugins/cc-idle/README.md](plugins/cc-idle/README.md) for keys and how the mod maps Claude Code's
+events onto the economy.
+
+## Quick Start: tmux edition
 
 Install dependencies and build:
 
@@ -142,6 +156,8 @@ ccidle replay session.jsonl --json --quiet              # machine-readable stats
 - `packages/tui/src/` — ccidle-tui (Ink/React CLI, session strip, game stage, lab panel, alert overlay)
 - `packages/cli/src/` — ccidle CLI (installer, launcher, doctor, attach, register, replay commands)
 - `hooks/` — POSIX sh hook shims (on-session-start.sh, on-pre-tool-use.sh, etc.)
+- `packages/mod/src/` — the Claude Code mod's sources (event → envelope adapter, cross-session store sync, pane view model, hooks module), bundled into `plugins/cc-idle/hooks/register.js`
+- `plugins/cc-idle/` — the mod as a Claude Code plugin; `.claude-plugin/marketplace.json` lists it
 
 ## Development
 

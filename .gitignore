@@ -3,3 +3,7 @@ dist/
 *.tsbuildinfo
 .DS_Store
 coverage/
+
+# Laid by Claude Code when it loads a mod from disk (regenerated each load)
+plugins/*/.claude-plugin/types/
+plugins/*/tsconfig.json

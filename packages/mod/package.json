@@ -1,0 +1,20 @@
+{
+  "name": "@ccidle/mod",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "CC Idle as a Claude Code mod: sources bundled into plugins/cc-idle",
+  "scripts": {
+    "build": "node build.mjs",
+    "typecheck": "tsc -p tsconfig.json",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@ccidle/game": "workspace:*",
+    "@ccidle/shared": "workspace:*",
+    "zod": "^3.24.0"
+  },
+  "devDependencies": {
+    "esbuild": "^0.24.0"
+  }
+}
