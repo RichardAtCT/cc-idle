@@ -5145,7 +5145,7 @@ var NARRATION_TONE = {
 };
 function statusText(game) {
   const incidents = Object.values(game.regions).reduce((n, region) => n + region.incidents.length, 0);
-  const alert = incidents > 0 ? ` \xB7 \u26A1${incidents}` : "";
+  const alert = incidents > 0 ? ` \xB7 \u21AF${incidents}` : "";
   return `cc-idle ${formatAmount(game.resources.compute)} FLOPS \xB7 Gen-${game.generation}${alert}`;
 }
 
@@ -5353,7 +5353,7 @@ function register(on) {
     } else {
       const focus = focusedRegion(game, selected);
       const lab = labView(game, Math.min(24, Math.max(8, width - 24)));
-      const regionBlock = focus ? /* @__PURE__ */ h(Box, { key: "region", flexDirection: "column" }, /* @__PURE__ */ h(Text, { wrap: "truncate" }, /* @__PURE__ */ h(Text, { bold: true, color: "cyan" }, focus.region.name), " ", /* @__PURE__ */ h(Text, { dimColor: true }, focus.position, "/", focus.count), " ", /* @__PURE__ */ h(Text, { color: TONE_COLOR[REGION_STATUS[focus.region.status].tone] }, REGION_STATUS[focus.region.status].text)), regionLines(focus.region).map((line, i) => /* @__PURE__ */ h(Text, { key: `region-line-${i}`, dimColor: i > 0, wrap: "truncate" }, line)), /* @__PURE__ */ h(Text, { wrap: "truncate" }, rackDiagram(focus.region, width)), focus.region.incidents.map((incident) => /* @__PURE__ */ h(Text, { key: incident.id, color: "red", wrap: "truncate" }, "\u26A1 ", incident.title)), /* @__PURE__ */ h(Box, { flexDirection: "row", columnGap: 2, flexWrap: "wrap" }, infraActions(game, focus.region).map(
+      const regionBlock = focus ? /* @__PURE__ */ h(Box, { key: "region", flexDirection: "column" }, /* @__PURE__ */ h(Text, { wrap: "truncate" }, /* @__PURE__ */ h(Text, { bold: true, color: "cyan" }, focus.region.name), " ", /* @__PURE__ */ h(Text, { dimColor: true }, focus.position, "/", focus.count), " ", /* @__PURE__ */ h(Text, { color: TONE_COLOR[REGION_STATUS[focus.region.status].tone] }, REGION_STATUS[focus.region.status].text)), regionLines(focus.region).map((line, i) => /* @__PURE__ */ h(Text, { key: `region-line-${i}`, dimColor: i > 0, wrap: "truncate" }, line)), /* @__PURE__ */ h(Text, { wrap: "truncate" }, rackDiagram(focus.region, width)), focus.region.incidents.map((incident) => /* @__PURE__ */ h(Text, { key: incident.id, color: "red", wrap: "truncate" }, "\u21AF ", incident.title)), /* @__PURE__ */ h(Box, { flexDirection: "row", columnGap: 2, flexWrap: "wrap" }, infraActions(game, focus.region).map(
         (action) => actionButton(
           action,
           () => act($, { type: "buy", regionId: focus.region.id, tierId: action.tierId })

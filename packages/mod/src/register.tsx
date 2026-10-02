@@ -316,7 +316,7 @@ export function register(on: On): void {
           <Text wrap="truncate">{rackDiagram(focus.region, width)}</Text>
           {focus.region.incidents.map((incident) => (
             <Text key={incident.id} color="red" wrap="truncate">
-              ⚡ {incident.title}
+              ↯ {incident.title}
             </Text>
           ))}
           <Box flexDirection="row" columnGap={2} flexWrap="wrap">
