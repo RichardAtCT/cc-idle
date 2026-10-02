@@ -15,9 +15,9 @@ await build({
   platform: 'neutral',
   target: 'es2022',
   external: ['claude-code'],
-  // The engine needs only the event schema from @ccidle/shared; its index
+  // The engine needs only the Node-free part of @ccidle/shared; its index
   // also exports Node-only config and save-file helpers.
-  alias: { '@ccidle/shared': here('../shared/src/events.ts') },
+  alias: { '@ccidle/shared': here('../shared/src/pure.ts') },
   mainFields: ['module', 'main'],
   jsx: 'transform',
   jsxFactory: 'h',
