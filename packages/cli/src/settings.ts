@@ -28,11 +28,19 @@ export interface ClaudeSettings {
   [key: string]: unknown;
 }
 
-/** Marker substring used to identify hook entries ccidle owns, for both install-dedup and uninstall. */
-const OWN_HOOK_MARKER = '/hooks/on-';
+const OWN_SCRIPT_NAMES = new Set(Object.values(EVENT_SCRIPTS));
 
+/**
+ * Whether a hook command is one ccidle installed, for install-dedup, uninstall
+ * and doctor. The file name must be one of ccidle's wrappers, and the shared
+ * shim must sit beside it. That keeps a user's own `~/.claude/hooks/on-stop.sh`
+ * safe. A wrapper path that no longer exists also counts, so entries left by
+ * a moved or deleted checkout are still cleaned up.
+ */
 export function isOwnCommand(command: string): boolean {
-  return command.includes(OWN_HOOK_MARKER);
+  if (!OWN_SCRIPT_NAMES.has(path.basename(command))) return false;
+  if (fs.existsSync(path.join(path.dirname(command), 'ccidle-hook.sh'))) return true;
+  return !fs.existsSync(command);
 }
 
 /** Build the hooks fragment ccidle registers, keyed by Claude Code event name. */

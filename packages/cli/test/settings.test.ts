@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import {
   buildHookFragment,
   buildRedactSed,
@@ -113,6 +114,31 @@ describe('unmergeSettings (round trip with mergeSettings)', () => {
         }
       }
     }
+  });
+
+  it("keeps a user's own hook that shares a wrapper's file name", () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'ccidle-userhooks-'));
+    try {
+      // Laid out like ~/.claude/hooks/on-stop.sh.
+      fs.mkdirSync(path.join(dir, 'hooks'));
+      const userHook = path.join(dir, 'hooks', 'on-stop.sh');
+      fs.writeFileSync(userHook, '#!/bin/sh\n');
+      const existing: ClaudeSettings = {
+        hooks: { Stop: [{ hooks: [{ type: 'command', command: userHook }] }] }
+      };
+      expect(isOwnCommand(userHook)).toBe(false);
+      expect(hooksInstalled(existing).installed).toBe(false);
+      const uninstalled = unmergeSettings(mergeSettings(existing, HOOKS_DIR_A));
+      expect(uninstalled.hooks!.Stop).toEqual(existing.hooks!.Stop);
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("recognises the repo's real hooks dir as ccidle's", () => {
+    const realHooks = fileURLToPath(new URL('../../../hooks/on-stop.sh', import.meta.url));
+    expect(fs.existsSync(realHooks)).toBe(true);
+    expect(isOwnCommand(realHooks)).toBe(true);
   });
 
   it('drops the hooks key entirely when nothing foreign remains', () => {
