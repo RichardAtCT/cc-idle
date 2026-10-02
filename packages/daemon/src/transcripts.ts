@@ -13,7 +13,10 @@ interface RawUsage {
 }
 
 interface RawTranscriptLine {
+  uuid?: string;
+  requestId?: string;
   message?: {
+    id?: string;
     usage?: RawUsage;
     model?: string;
   };
@@ -23,8 +26,16 @@ interface RawTranscriptLine {
  * Parse new transcript JSONL bytes (already sliced to just the new region)
  * into per-model usage deltas. Unreadable/malformed lines are skipped
  * silently — transcripts are CC's own file and not our schema to enforce.
+ *
+ * One API response is written as one line per content block, and every line
+ * repeats the same usage. Each response is counted once, keyed by message.id
+ * (fallback requestId, then line uuid). `seen` carries the keys across calls,
+ * because a response's lines can straddle two polls.
  */
-export function parseUsageDeltas(newContent: string): Record<string, TokenUsagePayload['byModel'][string]> {
+export function parseUsageDeltas(
+  newContent: string,
+  seen: Set<string> = new Set()
+): Record<string, TokenUsagePayload['byModel'][string]> {
   const byModel: Record<string, TokenUsagePayload['byModel'][string]> = {};
   for (const rawLine of newContent.split('\n')) {
     const line = rawLine.trim();
@@ -38,6 +49,11 @@ export function parseUsageDeltas(newContent: string): Record<string, TokenUsageP
     const usage = parsed.message?.usage;
     const model = parsed.message?.model;
     if (!usage || !model) continue;
+    const key = parsed.message?.id ?? parsed.requestId ?? parsed.uuid;
+    if (typeof key === 'string' && key !== '') {
+      if (seen.has(key)) continue;
+      seen.add(key);
+    }
 
     const delta = {
       inputTokens: usage.input_tokens ?? 0,
@@ -70,6 +86,8 @@ export function parseUsageDeltas(newContent: string): Record<string, TokenUsageP
 interface TrackedTranscript {
   path: string;
   offset: number;
+  /** Usage keys already counted; see parseUsageDeltas. */
+  seen: Set<string>;
 }
 
 /**
@@ -86,7 +104,7 @@ export class TranscriptReader {
   setTranscriptPath(sessionId: string, transcriptPath: string): void {
     const existing = this.tracked.get(sessionId);
     if (existing && existing.path === transcriptPath) return;
-    this.tracked.set(sessionId, { path: transcriptPath, offset: 0 });
+    this.tracked.set(sessionId, { path: transcriptPath, offset: 0, seen: new Set() });
   }
 
   hasTranscript(sessionId: string): boolean {
@@ -121,7 +139,11 @@ export class TranscriptReader {
       return null;
     }
     if (size <= tracked.offset) {
-      if (size < tracked.offset) tracked.offset = 0; // transcript rotated/truncated; restart
+      if (size < tracked.offset) {
+        // transcript rotated/truncated; restart
+        tracked.offset = 0;
+        tracked.seen.clear();
+      }
       return null;
     }
 
@@ -145,7 +167,7 @@ export class TranscriptReader {
     if (usable === '') return null;
     tracked.offset += Buffer.byteLength(usable, 'utf8');
 
-    const byModel = parseUsageDeltas(usable);
+    const byModel = parseUsageDeltas(usable, tracked.seen);
     if (Object.keys(byModel).length === 0) return null;
 
     const envelope: EventEnvelope = {
