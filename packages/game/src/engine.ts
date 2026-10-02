@@ -1,7 +1,9 @@
 import {
   TokenUsagePayloadSchema,
+  distinguishingNames,
   type EventEnvelope,
-  type SessionState
+  type SessionState,
+  type TokenUsagePayload
 } from '@ccidle/shared';
 import { z } from 'zod';
 import { BALANCE, INFRA_TIERS, generationThreshold, hireCap, hireCost, tierCost, type InfraTier } from './balance.js';
@@ -151,6 +153,20 @@ function regionName(cwd: string): string {
   return base === '' ? cwd : base;
 }
 
+/**
+ * Re-labels every region so no two display the same name. Two checkouts called
+ * "opus" become "01-bugfix/opus" and "03-refactor/opus"; a region with a name
+ * of its own keeps its bare leaf.
+ */
+function refreshRegionNames(draft: GameState): void {
+  const ids = Object.keys(draft.regions).filter((id) => id !== UNASSIGNED_REGION_ID);
+  const names = distinguishingNames(ids);
+  for (const id of ids) {
+    const region = draft.regions[id];
+    if (region) region.name = names.get(id) ?? regionName(id);
+  }
+}
+
 function ensureRegion(draft: GameState, effects: Narration[], regionId: string, nowMs: number): Region {
   const existing = draft.regions[regionId];
   if (existing) return existing;
@@ -167,6 +183,8 @@ function ensureRegion(draft: GameState, effects: Narration[], regionId: string, 
     totals: { compute: 0, engineering: 0, research: 0, outputTokens: 0, incidents: 0 }
   };
   draft.regions[regionId] = region;
+  // A new region can collide with an existing leaf name, so both get relabelled.
+  refreshRegionNames(draft);
   narrate(draft, effects, nowMs, `⛏ region "${region.name}" founded`, 'ceremony');
   return region;
 }
@@ -290,13 +308,37 @@ function applyToolCall(draft: GameState, region: Region, envelope: EventEnvelope
  * rolling window, then a log-scaled marginal rate. Grinding tokens visibly
  * yields less; the curve resets as the window rolls over.
  */
+/**
+ * The only tokens the economy is allowed to see.
+ *
+ * A `TokenUsage` payload carries four counters per model; three of them are
+ * prompt-cache accounting. On the 2026-08-17 baseline corpus cache reads ran to
+ * 2.07 billion tokens against 6.2 million output tokens — a 300:1 ratio. Any
+ * resource formula that touched cache counters would therefore be driven almost
+ * entirely by caching behaviour rather than by work Claude actually did, and a
+ * single long-context session would swamp the whole economy.
+ *
+ * Output tokens are the one counter that measures production, so they are the
+ * one counter the economy reads. This function is the boundary: its return type
+ * exposes nothing else, so widening it is a deliberate act rather than an
+ * accident. test/cache-exclusion.test.ts fails if the exclusion is ever broken.
+ */
+export interface EconomyTokens {
+  readonly outputTokens: number;
+}
+
+export function economyTokens(payload: TokenUsagePayload): EconomyTokens {
+  let outputTokens = 0;
+  for (const totals of Object.values(payload.byModel)) {
+    outputTokens += totals.outputTokens;
+  }
+  return { outputTokens };
+}
+
 function applyTokenUsage(draft: GameState, region: Region, envelope: EventEnvelope, nowMs: number, effects: Narration[]): void {
   const parsed = TokenUsagePayloadSchema.safeParse(envelope.payload);
   if (!parsed.success) return;
-  let outputTokens = 0;
-  for (const totals of Object.values(parsed.data.byModel)) {
-    outputTokens += totals.outputTokens;
-  }
+  const { outputTokens } = economyTokens(parsed.data);
   if (outputTokens <= 0) return;
 
   const { fullRateTokensPerWindow: fullN, windowMs, perOutputToken } = BALANCE.compute;
@@ -442,12 +484,12 @@ function spawnIncident(draft: GameState, region: Region, nowMs: number, effects:
     draft.resources.engineering += BALANCE.engineering.postMortem;
     draft.stats.engineeringFromPostMortems += BALANCE.engineering.postMortem;
     region.totals.engineering += BALANCE.engineering.postMortem;
-    narrate(draft, effects, nowMs, `⚡ ${title} in "${region.name}" — self-healed (+${BALANCE.engineering.postMortem} eng)`, 'info');
+    narrate(draft, effects, nowMs, `↯ ${title} in "${region.name}" — self-healed (+${BALANCE.engineering.postMortem} eng)`, 'info');
     return;
   }
 
   region.incidents.push({ id: `inc-${seq}`, title, startedAt: new Date(nowMs).toISOString() });
-  narrate(draft, effects, nowMs, `⚡ incident in "${region.name}": ${title} — [a] to acknowledge`, 'bad');
+  narrate(draft, effects, nowMs, `↯ incident in "${region.name}": ${title} — [a] to acknowledge`, 'bad');
 }
 
 // ---- player actions ----

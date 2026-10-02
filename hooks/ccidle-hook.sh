@@ -22,9 +22,10 @@ event_name="${1:-Unknown}"
   input="$(cat 2>/dev/null)"
 
   # ISO 8601 UTC timestamp, millisecond precision when the platform's `date`
-  # supports %3N (GNU date); fall back to second precision otherwise (e.g.
-  # BSD/macOS date, which errors on %3N or prints a literal "3N" mid-string,
-  # e.g. "...15.3NZ", so the guard must match an N anywhere).
+  # supports %3N (GNU date); fall back to second precision otherwise. BSD/macOS
+  # date leaves "%3N" as the literal text "3N" mid-string (".3NZ"), so match an
+  # N anywhere — a valid rendering of this format contains only digits and
+  # "-:.TZ".
   ts="$(date -u +%Y-%m-%dT%H:%M:%S.%3NZ 2>/dev/null)"
   case "$ts" in
     *N*|"") ts="$(date -u +%Y-%m-%dT%H:%M:%SZ 2>/dev/null)" ;;
