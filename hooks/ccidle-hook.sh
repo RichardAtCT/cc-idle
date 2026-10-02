@@ -23,7 +23,8 @@ event_name="${1:-Unknown}"
 
   # ISO 8601 UTC timestamp, millisecond precision when the platform's `date`
   # supports %3N (GNU date); fall back to second precision otherwise (e.g.
-  # BSD/macOS date, which leaves a literal "N" or errors on %3N).
+  # BSD/macOS date, which errors on %3N or prints a literal "3N" mid-string,
+  # e.g. "...15.3NZ", so the guard must match an N anywhere).
   ts="$(date -u +%Y-%m-%dT%H:%M:%S.%3NZ 2>/dev/null)"
   case "$ts" in
     *N*|"") ts="$(date -u +%Y-%m-%dT%H:%M:%SZ 2>/dev/null)" ;;
