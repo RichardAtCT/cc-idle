@@ -10,10 +10,11 @@ const CWD = '/work/cc-idle';
 const START = Date.parse('2026-10-02T10:00:00Z');
 const STARTED = { cwd: CWD, surface: 'terminal' as const, isInteractive: true };
 
-function engine(on: On, store: Record<string, unknown> = {}) {
+/** A returning player unless the store says otherwise; `isPlaced: false` is a narrow terminal. */
+function engine(on: On, store: Record<string, unknown> = {}, { isPlaced = true } = {}) {
   const clock = mock.clock(on, { now: START });
   // An in-memory $.store the test can read back.
-  const kv = new Map<string, unknown>(Object.entries(store));
+  const kv = new Map<string, unknown>(Object.entries({ onboarded: true, ...store }));
   on('store.get', async (_$, e) => ({ value: kv.get(e.key) }));
   on('store.set', async (_$, e) => {
     kv.set(e.key, e.value);
@@ -26,7 +27,11 @@ function engine(on: On, store: Record<string, unknown> = {}) {
   on('session.start', async () => ({ cwd: CWD }));
   on('ui.open', async (_$, e) => {
     seen.opened.push(e.id);
-    return { value: { isPlaced: true as const } };
+    return {
+      value: isPlaced
+        ? { isPlaced: true as const }
+        : { isPlaced: false as const, reason: 'terminal is 100 columns; 144 seat it unasked' }
+    };
   });
   on('ui.close', async () => ({ value: undefined }));
   on('ui.status', async (_$, e) => {
@@ -181,6 +186,35 @@ describe('cc-idle economy', () => {
     const stored = kv.get('save') as { game: { regions: Record<string, { infrastructure: Record<string, number> }> } };
     expect(stored.game.regions[CWD]?.infrastructure['gpu']).toBe(1);
     await ui.unmount();
+  });
+
+  test('a new player sees the welcome first, once', async ($, on) => {
+    const { kv } = engine(on, { onboarded: undefined });
+    await $.session.start(STARTED);
+    const ui = await $.ui.mount({ ...PANE, surface: 'terminal' });
+    expect(await ui.find({ text: /WELCOME TO CC-IDLE/ })).toBeDefined();
+    await ui.press({ key: 'help-done' });
+    expect(await ui.find({ text: /FRONTIER LAB/ })).toBeDefined();
+    expect(await ui.find({ text: /Ask Claude anything/ })).toBeDefined();
+    expect(kv.get('onboarded')).toBe(true);
+    // Help stays one key away, now without the welcome.
+    await ui.press({ key: 'open-help' });
+    expect(await ui.find({ text: /HOW TO PLAY/ })).toBeDefined();
+    await ui.unmount();
+  });
+
+  test('a new player in a narrow terminal is told about /idle', async ($, on) => {
+    const { seen } = engine(on, { onboarded: undefined }, { isPlaced: false });
+    await $.session.start(STARTED);
+    await $.turn.start({ text: 'hi', turnId: 't1' });
+    expect(seen.toasts).toContain('cc-idle is installed: type /idle to play');
+  });
+
+  test('a returning player in a narrow terminal gets no toast', async ($, on) => {
+    const { seen } = engine(on, {}, { isPlaced: false });
+    await $.session.start(STARTED);
+    await $.turn.start({ text: 'hi', turnId: 't1' });
+    expect(seen.toasts).toEqual([]);
   });
 
   test('a permission prompt flags that Claude needs the person', async ($, on) => {

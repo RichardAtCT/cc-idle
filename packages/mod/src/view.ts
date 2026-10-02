@@ -178,3 +178,29 @@ export function statusText(game: GameState): string {
   const alert = incidents > 0 ? ` · ⚡${incidents}` : '';
   return `cc-idle ${formatAmount(game.resources.compute)} FLOPS · Gen-${game.generation}${alert}`;
 }
+
+/**
+ * The one move worth making next, for a player still learning the game.
+ * Built from the same rules as the buttons, so it never points at a dim one.
+ */
+export function nextStep(game: GameState, region: Region | null): string | null {
+  if (!region) return 'Ask Claude anything: its work here founds your first region.';
+  if (region.incidents.length > 0) return 'Press a to acknowledge the incident.';
+  const gpu = infraActions(game, region)[0];
+  if ((region.infrastructure['gpu'] ?? 0) === 0 && gpu?.isReady) return 'Press g to buy your first GPU.';
+  const lab = labView(game, 1);
+  if (game.lab.researchers === 0 && lab.actions[0]?.isReady) return 'Press h to hire your first researcher.';
+  if (lab.isShippable) return `Press s to ship Gen-${game.generation}.`;
+  return null;
+}
+
+/** The welcome and help screen: how Claude's work becomes the economy, and what to spend it on. */
+export const HELP_LINES: ReadonlyArray<{ text: string; tone: Tone }> = [
+  { text: 'You run an AI lab. Claude does the work; you spend what it earns.', tone: 'info' },
+  { text: 'Output tokens → FLOPS · Edit/Write/Bash → eng · Read/Search → data', tone: 'accent' },
+  { text: 'A finished turn pays a bonus. A subagent is a training run. A failed tool is an incident.', tone: 'accent' },
+  { text: 'g r d buy GPUs, racks and datacenters: more FLOPS per token.', tone: 'info' },
+  { text: 'h hires researchers and e runs experiments: they fill the model bar.', tone: 'info' },
+  { text: 's ships the generation for ★ Breakthroughs (v), which outlast the reset.', tone: 'info' },
+  { text: 'Esc hands the keyboard back. /idle takes it again. /idle close hides the pane.', tone: 'dim' }
+];
