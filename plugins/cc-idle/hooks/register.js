@@ -5109,7 +5109,7 @@ function labView(game, barWidth) {
   const nextHire = hireCost(game.lab.researchers);
   const isShippable = canShipGeneration(game);
   return {
-    researchers: `\u263A ${game.lab.researchers}/${cap} researchers \xD7${labMultiplier(game).toFixed(2)}`,
+    researchers: `\u263A ${game.lab.researchers}/${cap} researchers \xB7 progress \xD7${labMultiplier(game).toFixed(2)}`,
     progressBar: progressBar(game.lab.modelProgress / threshold, barWidth),
     progress: `${formatAmount(game.lab.modelProgress)}/${formatAmount(threshold)}`,
     isShippable,
@@ -5162,6 +5162,12 @@ function nextStep(game, region) {
   const lab = labView(game, 1);
   if (game.lab.researchers === 0 && lab.actions[0]?.isReady) return "Press h to hire your first researcher.";
   if (lab.isShippable) return `Press s to ship Gen-${game.generation}.`;
+  if (game.lab.researchers > 0 && game.lab.modelProgress === 0) {
+    if (lab.actions[1]?.isReady) return "Press e to run an experiment: researchers multiply its progress.";
+    if (game.resources.research < BALANCE.lab.experimentDataCost) {
+      return `Experiments need ${BALANCE.lab.experimentDataCost} data (have ${formatAmount(game.resources.research)}). Ask Claude to use a subagent: each run adds progress, even with no data.`;
+    }
+  }
   return null;
 }
 var HELP_LINES = [
@@ -5169,7 +5175,7 @@ var HELP_LINES = [
   { text: "Output tokens \u2192 FLOPS \xB7 Edit/Write/Bash \u2192 eng \xB7 Read/Search \u2192 data", tone: "accent" },
   { text: "A finished turn pays a bonus. A subagent is a training run. A failed tool is an incident.", tone: "accent" },
   { text: "g r d buy GPUs, racks and datacenters: more FLOPS per token.", tone: "info" },
-  { text: "h hires researchers and e runs experiments: they fill the model bar.", tone: "info" },
+  { text: "e runs an experiment and a subagent runs training: both fill the model bar. h hires researchers to multiply it.", tone: "info" },
   { text: "s ships the generation for \u2605 Breakthroughs (v), which outlast the reset.", tone: "info" },
   { text: "Esc hands the keyboard back. /idle takes it again. /idle close hides the pane.", tone: "dim" }
 ];
