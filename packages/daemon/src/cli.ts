@@ -1,4 +1,5 @@
 import { parseArgs } from 'node:util';
+import { isEntryPoint } from '@ccidle/shared';
 import { startDaemon, DAEMON_VERSION, DaemonAlreadyRunningError } from './daemon.js';
 
 function printHelp(): void {
@@ -48,7 +49,6 @@ export async function main(argv: string[] = process.argv.slice(2)): Promise<void
   }
 }
 
-const invokedDirectly = process.argv[1] !== undefined && import.meta.url === `file://${process.argv[1]}`;
-if (invokedDirectly) {
+if (isEntryPoint(import.meta.url)) {
   void main();
 }

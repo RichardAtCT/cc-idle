@@ -229,6 +229,13 @@ describe('lab & training (PRD §4, M2)', () => {
     expect(state.stats.computeFromTraining).toBeGreaterThan(0);
   });
 
+  it('a partial training run spends research down to exactly zero, never below', () => {
+    let state = withRegion();
+    state.resources.research = 7.75; // 15 × (7.75 / 15) rounds one ulp above 7.75
+    state = telemetry(state, { event: 'SubagentStop' });
+    expect(state.resources.research).toBe(0);
+  });
+
   it('training never blocks: no research data still pays at min efficiency', () => {
     let state = withRegion();
     const rich = (() => {

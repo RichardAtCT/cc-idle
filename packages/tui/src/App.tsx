@@ -4,6 +4,7 @@ import type { Config, ServerMessage, SessionSnapshot } from '@ccidle/shared';
 import { BREAKTHROUGH_NODES, canShipGeneration, regionsByFounded, type GameAction } from '@ccidle/game';
 import type { DaemonClient } from './client.js';
 import { initialState, reduce, orderedSessions } from './store.js';
+import { layoutBudget, useTerminalRows } from './layout.js';
 import { Header } from './components/Header.js';
 import { SessionStrip } from './components/SessionStrip.js';
 import { AlertBanner } from './components/AlertBanner.js';
@@ -71,6 +72,17 @@ export function App({ client, config }: AppProps): React.ReactElement {
   const game = state.game;
   const regions = game ? regionsByFounded(game) : [];
   const focusedRegion = regions.length > 0 ? regions[regionIndex % regions.length] : undefined;
+
+  // Clip the variable-height panels so the frame always fits the viewport; an
+  // over-tall frame is what makes Ink scroll instead of repaint (see layout.ts).
+  const rows = useTerminalRows();
+  const budget = layoutBudget({
+    rows,
+    sessionCount: sessions.length,
+    incidentCount: focusedRegion?.incidents.length ?? 0,
+    alertVisible: Boolean(state.activeAlertSessionId),
+    confirmVisible: mode === 'confirm-ship'
+  });
 
   const sendAction = useCallback(
     (action: GameAction) => {
@@ -195,6 +207,7 @@ export function App({ client, config }: AppProps): React.ReactElement {
                   position={(regionIndex % regions.length) + 1}
                   count={regions.length}
                   flow={state.computeFlow[focusedRegion.id] ?? []}
+                  incidentLimit={budget.incidentLimit}
                 />
               ) : (
                 <Box borderStyle="round" paddingX={1}>
@@ -202,7 +215,7 @@ export function App({ client, config }: AppProps): React.ReactElement {
                 </Box>
               )}
               <LabPanel game={game} />
-              <Feed log={game.log} />
+              <Feed log={game.log} limit={budget.feedLimit} />
             </>
           )}
           <Box paddingX={1} gap={2}>
