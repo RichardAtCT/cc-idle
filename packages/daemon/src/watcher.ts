@@ -113,20 +113,30 @@ export class Watcher extends EventEmitter<WatcherEvents> {
     const result = readNewLines(filePath, prevOffset);
     this.offsets.set(filePath, result.offset);
     if (result.truncated) this.emit('truncated', filePath);
-    for (const line of result.lines) {
+    this.emitLines(result.lines, filePath);
+  }
+
+  private emitLines(lines: string[], filePath: string): void {
+    for (const line of lines) {
       const envelope = parseEventLine(line);
       if (envelope) this.emit('event', envelope, filePath);
     }
   }
 
+  /**
+   * Used by rotation.ts after it renames a live file aside. Emits the lines
+   * not yet consumed from the renamed file as if they came from the live
+   * path, then restarts the live path at offset 0 for the file hooks create next.
+   */
+  drainRotated(livePath: string, rotatedPath: string): void {
+    const result = readNewLines(rotatedPath, this.offsets.get(livePath) ?? 0);
+    this.offsets.set(livePath, 0);
+    this.emitLines(result.lines, livePath);
+  }
+
   /** Force a re-read of one file right now (e.g. after this daemon appends a synthetic event itself). */
   poke(filePath: string): void {
     this.consume(filePath);
-  }
-
-  /** Used by rotation.ts right after it archives+truncates a live file, to keep offsets in sync. */
-  resetOffset(filePath: string, offset = 0): void {
-    this.offsets.set(filePath, offset);
   }
 
   getOffset(filePath: string): number {

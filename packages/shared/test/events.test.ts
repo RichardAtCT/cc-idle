@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { parseEventLine, serializeEvent, EventEnvelopeSchema } from '../src/events.js';
+import { parseEventLine, serializeEvent, EventEnvelopeSchema, TokenUsagePayloadSchema } from '../src/events.js';
 
 describe('EventEnvelope', () => {
   const valid = {
@@ -53,5 +53,12 @@ describe('EventEnvelope', () => {
     const line = serializeEvent(envelope);
     expect(line.endsWith('\n')).toBe(true);
     expect(parseEventLine(line)).toEqual(envelope);
+  });
+});
+
+describe('TokenUsagePayload', () => {
+  it('rejects a token count of Infinity', () => {
+    const counts = { inputTokens: 1, outputTokens: Infinity, cacheReadTokens: 0, cacheWriteTokens: 0 };
+    expect(TokenUsagePayloadSchema.safeParse({ byModel: { m: counts } }).success).toBe(false);
   });
 });

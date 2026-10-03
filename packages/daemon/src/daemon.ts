@@ -8,6 +8,7 @@ import {
   pidFilePath,
   daemonLogPath,
   loadConfig,
+  TokenUsagePayloadSchema,
   type SessionSnapshot,
   type SessionState
 } from '@ccidle/shared';
@@ -66,8 +67,16 @@ export interface DaemonHandle {
   stop(): Promise<void>;
 }
 
+export interface DaemonDeps {
+  /** Defaults to the real tmux binary; tests pass a fake. */
+  tmux?: TmuxClient;
+}
+
 /** Wires watcher → state machines → focus engine → ipc server (PRD §3.3). */
-export async function startDaemon(env: NodeJS.ProcessEnv = process.env): Promise<DaemonHandle> {
+export async function startDaemon(
+  env: NodeJS.ProcessEnv = process.env,
+  deps: DaemonDeps = {}
+): Promise<DaemonHandle> {
   ensureDirs(env);
   const config = loadConfig(undefined, env);
   const logger = createLogger(daemonLogPath(env), config.log.level);
@@ -75,7 +84,7 @@ export async function startDaemon(env: NodeJS.ProcessEnv = process.env): Promise
   claimPidfile(pidFilePath(env));
 
   const sessions = new Map<string, SessionSnapshot>();
-  const tmux: TmuxClient = new RealTmuxClient();
+  const tmux: TmuxClient = deps.tmux ?? new RealTmuxClient();
   const registrations = new RegistrationStore(env);
   const transcripts = new TranscriptReader();
   const tmuxAvailable = await tmux.isAvailable();
@@ -178,6 +187,11 @@ export async function startDaemon(env: NodeJS.ProcessEnv = process.env): Promise
     await focusEngine.onTransition(sessionId, from, to);
   }
 
+  // True while the watcher replays the event files that existed at startup.
+  // Those events already happened: rebuild state from them, but do not move
+  // focus or read transcripts again on their behalf.
+  let replaying = true;
+
   watcher.on('event', (envelope, filePath) => {
     const sessionId = envelope.session_id;
     const nowIso = new Date().toISOString();
@@ -189,6 +203,15 @@ export async function startDaemon(env: NodeJS.ProcessEnv = process.env): Promise
     const transcriptPath = envelope.payload?.transcript_path;
     if (typeof transcriptPath === 'string' && transcriptPath) {
       transcripts.setTranscriptPath(sessionId, transcriptPath);
+    }
+
+    if (replaying) {
+      if (envelope.event === 'TokenUsage') {
+        const usage = TokenUsagePayloadSchema.safeParse(envelope.payload);
+        if (usage.success) transcripts.resume(sessionId, usage.data);
+      }
+      gameHost.handleEnvelope(envelope, filePath);
+      return;
     }
 
     ipc.broadcastEvent(envelope);
@@ -216,10 +239,13 @@ export async function startDaemon(env: NodeJS.ProcessEnv = process.env): Promise
   });
 
   await watcher.start();
+  replaying = false;
+  transcripts.finishReplay();
 
-  // Seed the focus engine's queue and log a startup summary once replay is done.
+  // Replay skipped transitions, so hand each session's final state over once.
   for (const snapshot of sessions.values()) {
     if (snapshot.state === 'HUMAN_ACTIVE') focusEngine.seedHumanActive(snapshot.sessionId);
+    gameHost.handleStateChange(snapshot.sessionId, snapshot.state);
   }
   logger.info(`replayed ${sessions.size} session(s) from ${eventsDir(env)}`);
 

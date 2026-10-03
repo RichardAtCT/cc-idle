@@ -147,19 +147,4 @@ describe('Watcher', () => {
 
     expect(seen).toEqual(['SessionStart', 'UserPromptSubmit']);
   });
-
-  it('handles truncation via resetOffset from rotation', async () => {
-    const dir = mkTmpDir();
-    cleanups.push(() => fs.rmSync(dir, { recursive: true, force: true }));
-    const file = path.join(dir, 'sess-3.jsonl');
-    fs.writeFileSync(file, line('sess-3', 'SessionStart'));
-
-    const watcher = new Watcher(dir);
-    await watcher.start();
-    cleanups.push(() => watcher.stop());
-    expect(watcher.getOffset(file)).toBeGreaterThan(0);
-
-    watcher.resetOffset(file, 0);
-    expect(watcher.getOffset(file)).toBe(0);
-  });
 });

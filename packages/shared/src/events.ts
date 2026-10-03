@@ -69,12 +69,18 @@ export const TokenUsagePayloadSchema = z.object({
   /** Usage deltas since the previous TokenUsage emission, keyed by model id. */
   byModel: z.record(
     z.object({
-      inputTokens: z.number().nonnegative(),
-      outputTokens: z.number().nonnegative(),
-      cacheReadTokens: z.number().nonnegative(),
-      cacheWriteTokens: z.number().nonnegative()
+      inputTokens: z.number().nonnegative().finite(),
+      outputTokens: z.number().nonnegative().finite(),
+      cacheReadTokens: z.number().nonnegative().finite(),
+      cacheWriteTokens: z.number().nonnegative().finite()
     })
-  )
+  ),
+  /** Transcript this delta was read from. With transcriptOffset, lets a restart resume the read. */
+  transcriptPath: z.string().optional(),
+  /** Byte offset in transcriptPath up to which usage has been counted. */
+  transcriptOffset: z.number().int().nonnegative().optional(),
+  /** Usage key of the last response counted, so a response split across the offset is not counted twice. */
+  lastKey: z.string().optional()
 });
 
 export type TokenUsagePayload = z.infer<typeof TokenUsagePayloadSchema>;

@@ -50,6 +50,23 @@ describe('GameHost', () => {
     expect(host.state().regions['/p/alpha']).toBeDefined();
   });
 
+  it('saves the cursor reset at once, so a crash after rotation does not skip new events', () => {
+    const savePath = tmpSavePath();
+    const first = makeHost(savePath).host;
+    for (const ts of ['2026-08-17T10:00:00.000Z', '2026-08-17T10:00:01.000Z', '2026-08-17T10:00:02.000Z']) {
+      first.handleEnvelope(env(ts, 'PostToolUse', { tool: 'Edit' }), FILE);
+    }
+    first.persist(true);
+    first.handleFileReset(FILE);
+    // Crash: no stop(), no autosave.
+
+    const { host } = makeHost(savePath);
+    const before = host.state().stats.eventsProcessed;
+    host.handleEnvelope(env('2026-08-17T10:01:00.000Z', 'PostToolUse', { tool: 'Edit' }), FILE);
+    host.handleEnvelope(env('2026-08-17T10:01:01.000Z', 'PostToolUse', { tool: 'Edit' }), FILE);
+    expect(host.state().stats.eventsProcessed).toBe(before + 2);
+  });
+
   it('does not double-count events replayed after a restart', () => {
     const savePath = tmpSavePath();
     const events = [

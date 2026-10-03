@@ -2,7 +2,7 @@ import { describe, it, expect, afterEach } from 'vitest';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { parseEventLine } from '@ccidle/shared';
+import { parseEventLine, TokenUsagePayloadSchema } from '@ccidle/shared';
 import { TranscriptReader, parseUsageDeltas } from '../src/transcripts.js';
 
 function mkTmpDir(): string {
@@ -122,6 +122,75 @@ describe('TranscriptReader', () => {
 
     fs.appendFileSync(transcriptPath, block);
     expect(reader.poll('sess-1', eventPath, '2026-08-17T10:00:10.000Z')).toBeNull();
+  });
+
+  it('keeps the usage for the next poll when the TokenUsage append fails', () => {
+    const dir = mkTmpDir();
+    cleanups.push(() => fs.rmSync(dir, { recursive: true, force: true }));
+    const transcriptPath = path.join(dir, 'transcript.jsonl');
+    const eventPath = path.join(dir, 'events', 'sess-1.jsonl');
+    fs.writeFileSync(
+      transcriptPath,
+      JSON.stringify({ message: { id: 'msg_1', model: 'claude-opus-4', usage: { output_tokens: 7 } } }) + '\n'
+    );
+    const reader = new TranscriptReader();
+    reader.setTranscriptPath('sess-1', transcriptPath);
+
+    // The events dir does not exist yet, so the append throws.
+    expect(reader.poll('sess-1', eventPath, '2026-08-17T10:00:00.000Z')).toBeNull();
+
+    fs.mkdirSync(path.dirname(eventPath));
+    const retry = reader.poll('sess-1', eventPath, '2026-08-17T10:00:10.000Z');
+    expect(retry?.payload.byModel['claude-opus-4']?.outputTokens).toBe(7);
+  });
+
+  it('records where it stopped reading, and a new reader resumes there', () => {
+    const dir = mkTmpDir();
+    cleanups.push(() => fs.rmSync(dir, { recursive: true, force: true }));
+    const transcriptPath = path.join(dir, 'transcript.jsonl');
+    const eventPath = path.join(dir, 'sess-1.jsonl');
+    const block = (id: string, out: number) =>
+      JSON.stringify({ message: { id, model: 'claude-opus-4', usage: { output_tokens: out } } }) + '\n';
+    fs.writeFileSync(transcriptPath, block('msg_1', 10));
+
+    const first = new TranscriptReader();
+    first.setTranscriptPath('sess-1', transcriptPath);
+    const written = first.poll('sess-1', eventPath, '2026-08-17T10:00:00.000Z');
+    expect(written?.payload).toMatchObject({
+      transcriptPath,
+      transcriptOffset: fs.statSync(transcriptPath).size,
+      lastKey: 'msg_1'
+    });
+
+    // While no reader runs: a second line of msg_1 (same usage) and a new response.
+    fs.appendFileSync(transcriptPath, block('msg_1', 10) + block('msg_2', 3));
+
+    const restarted = new TranscriptReader();
+    restarted.setTranscriptPath('sess-1', transcriptPath);
+    restarted.resume('sess-1', TokenUsagePayloadSchema.parse(parseEventLine(fs.readFileSync(eventPath, 'utf8'))!.payload));
+    restarted.finishReplay();
+    const next = restarted.poll('sess-1', eventPath, '2026-08-17T10:01:00.000Z');
+    expect(next?.payload.byModel['claude-opus-4']?.outputTokens).toBe(3);
+  });
+
+  it('skips to the transcript end after replaying a TokenUsage that has no offset', () => {
+    const dir = mkTmpDir();
+    cleanups.push(() => fs.rmSync(dir, { recursive: true, force: true }));
+    const transcriptPath = path.join(dir, 'transcript.jsonl');
+    const eventPath = path.join(dir, 'sess-1.jsonl');
+    fs.writeFileSync(transcriptPath, transcriptLine('claude-opus-4', { output_tokens: 10 }));
+
+    const reader = new TranscriptReader();
+    reader.setTranscriptPath('sess-1', transcriptPath);
+    reader.resume('sess-1', { byModel: {} });
+    reader.finishReplay();
+    expect(reader.poll('sess-1', eventPath, '2026-08-17T10:00:00.000Z')).toBeNull();
+
+    // With no TokenUsage replayed, nothing was counted yet: start at the top.
+    const fresh = new TranscriptReader();
+    fresh.setTranscriptPath('sess-1', transcriptPath);
+    fresh.finishReplay();
+    expect(fresh.poll('sess-1', eventPath, '2026-08-17T10:00:00.000Z')).not.toBeNull();
   });
 
   it('tolerates a missing or unreadable transcript file silently', () => {

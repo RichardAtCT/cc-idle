@@ -4329,12 +4329,18 @@ var TokenUsagePayloadSchema = external_exports.object({
   /** Usage deltas since the previous TokenUsage emission, keyed by model id. */
   byModel: external_exports.record(
     external_exports.object({
-      inputTokens: external_exports.number().nonnegative(),
-      outputTokens: external_exports.number().nonnegative(),
-      cacheReadTokens: external_exports.number().nonnegative(),
-      cacheWriteTokens: external_exports.number().nonnegative()
+      inputTokens: external_exports.number().nonnegative().finite(),
+      outputTokens: external_exports.number().nonnegative().finite(),
+      cacheReadTokens: external_exports.number().nonnegative().finite(),
+      cacheWriteTokens: external_exports.number().nonnegative().finite()
     })
-  )
+  ),
+  /** Transcript this delta was read from. With transcriptOffset, lets a restart resume the read. */
+  transcriptPath: external_exports.string().optional(),
+  /** Byte offset in transcriptPath up to which usage has been counted. */
+  transcriptOffset: external_exports.number().int().nonnegative().optional(),
+  /** Usage key of the last response counted, so a response split across the offset is not counted twice. */
+  lastKey: external_exports.string().optional()
 });
 
 // ../shared/src/names.ts
