@@ -360,7 +360,7 @@ export function register(on: On): void {
           <Text wrap="truncate">{rackDiagram(focus.region, width)}</Text>
           {focus.region.incidents.map((incident) => (
             <Text key={incident.id} color="red" wrap="truncate">
-              ⚡ {incident.title}
+              ↯ {incident.title}
             </Text>
           ))}
           <Box flexDirection="row" columnGap={2} flexWrap="wrap">
@@ -427,7 +427,7 @@ export function register(on: On): void {
         key={`feed-${i}`}
         color={TONE_COLOR[NARRATION_TONE[entry.kind]]}
         dimColor={NARRATION_TONE[entry.kind] === 'dim'}
-        wrap="truncate"
+        wrap="wrap"
       >
         {entry.text}
       </Text>

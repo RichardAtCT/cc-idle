@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 import { parseArgs } from 'node:util';
+import { isEntryPoint } from '@ccidle/shared';
 import { runInstall, runUninstall } from './installer.js';
 import { runDoctor, formatDoctorReport, doctorExitCode } from './doctor.js';
 import { sendRegister } from './register.js';
@@ -21,10 +22,28 @@ Usage:
   ccidle up [--no-claude]
   ccidle attach [--cwd <dir>]
   ccidle replay <session.jsonl>... [--speed <x>] [--json] [--quiet]
-  ccidle import [--claude-dir <dir>] [--project <path|glob>] [--since <date>] [--until <date>] [--corpus-dir <dir>]
-  ccidle backtest [file...] [--corpus-dir <dir>] [--json] [--md-out <path>] [--json-out <path>]
+  ccidle import [--claude-dir <dir>] [--project <path|glob>] [--since <date>] [--until <date>] [--corpus-dir <dir>] [--exclude <glob>]... [--no-default-excludes]
+  ccidle backtest [file...] [--corpus-dir <dir>] [--json] [--md-out <path>] [--json-out <path>] [--exclude <glob>]... [--no-default-excludes] [--min-turns <n>]
+
+Corpus hygiene:
+  --exclude <glob>         drop sessions whose working directory matches; repeatable.
+                           Replaces the config defaults (${'/private/tmp/**'}, ${'**/scratchpad/**'}).
+  --no-default-excludes    keep every session, same as --exclude ''.
+  --min-turns <n>          backtest only: drop sessions with fewer than n turns.
   ccidle corpus snapshot [--claude-dir <dir>] [--date <YYYY-MM-DD>]
 `);
+}
+
+/**
+ * Resolves exclusion globs from the command line. Any explicit --exclude
+ * replaces the config defaults rather than adding to them, so `--exclude ''`
+ * and --no-default-excludes both mean "exclude nothing"; omitting the flag
+ * entirely leaves the config defaults in force.
+ */
+function resolveExcludes(exclude: string[] | undefined, noDefaults: boolean): string[] | undefined {
+  if (noDefaults) return [];
+  if (exclude === undefined) return undefined;
+  return exclude.filter((g) => g !== '');
 }
 
 export async function main(argv: string[]): Promise<number> {
@@ -150,7 +169,9 @@ export async function main(argv: string[]): Promise<number> {
           'corpus-dir': { type: 'string' },
           project: { type: 'string' },
           since: { type: 'string' },
-          until: { type: 'string' }
+          until: { type: 'string' },
+          exclude: { type: 'string', multiple: true },
+          'no-default-excludes': { type: 'boolean', default: false }
         }
       });
       return runImport({
@@ -158,7 +179,8 @@ export async function main(argv: string[]): Promise<number> {
         corpusDir: values['corpus-dir'] as string | undefined,
         project: values.project as string | undefined,
         since: values.since as string | undefined,
-        until: values.until as string | undefined
+        until: values.until as string | undefined,
+        exclude: resolveExcludes(values.exclude as string[] | undefined, values['no-default-excludes'] as boolean)
       });
     }
 
@@ -170,15 +192,26 @@ export async function main(argv: string[]): Promise<number> {
           'corpus-dir': { type: 'string' },
           json: { type: 'boolean', default: false },
           'md-out': { type: 'string' },
-          'json-out': { type: 'string' }
+          'json-out': { type: 'string' },
+          exclude: { type: 'string', multiple: true },
+          'no-default-excludes': { type: 'boolean', default: false },
+          'min-turns': { type: 'string' }
         }
       });
+      const minTurnsRaw = values['min-turns'] as string | undefined;
+      const minTurns = minTurnsRaw === undefined ? undefined : Number(minTurnsRaw);
+      if (minTurns !== undefined && (!Number.isInteger(minTurns) || minTurns < 0)) {
+        console.error(`ccidle backtest: --min-turns must be a non-negative integer, got "${minTurnsRaw}"`);
+        return 1;
+      }
       return runBacktest({
         files: positionals,
         corpusDir: values['corpus-dir'] as string | undefined,
         json: values.json as boolean,
         mdOut: values['md-out'] as string | undefined,
-        jsonOut: values['json-out'] as string | undefined
+        jsonOut: values['json-out'] as string | undefined,
+        exclude: resolveExcludes(values.exclude as string[] | undefined, values['no-default-excludes'] as boolean),
+        minTurns
       });
     }
 
@@ -218,8 +251,7 @@ export async function main(argv: string[]): Promise<number> {
   }
 }
 
-const isMain = process.argv[1] && import.meta.url === `file://${process.argv[1]}`;
-if (isMain) {
+if (isEntryPoint(import.meta.url)) {
   main(process.argv.slice(2))
     .then((code) => {
       process.exitCode = code;

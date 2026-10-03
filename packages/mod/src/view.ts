@@ -175,7 +175,7 @@ export const NARRATION_TONE: Record<Narration['kind'], Tone> = {
 /** One status-line entry, readable even with the pane closed. */
 export function statusText(game: GameState): string {
   const incidents = Object.values(game.regions).reduce((n, region) => n + region.incidents.length, 0);
-  const alert = incidents > 0 ? ` · ⚡${incidents}` : '';
+  const alert = incidents > 0 ? ` · ↯${incidents}` : '';
   return `cc-idle ${formatAmount(game.resources.compute)} FLOPS · Gen-${game.generation}${alert}`;
 }
 

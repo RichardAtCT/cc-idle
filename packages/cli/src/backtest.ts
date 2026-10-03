@@ -9,8 +9,12 @@ import {
 import {
   TokenUsagePayloadSchema,
   corpusDir as defaultCorpusDir,
+  distinguishingNames,
+  loadConfig,
+  matchingGlob,
   type EventEnvelope
 } from '@ccidle/shared';
+import { costOf, formatUsd, loadPriceTable, priceFor } from './prices.js';
 
 /**
  * `ccidle backtest` — batch-replay an imported corpus headless and emit a
@@ -198,6 +202,13 @@ export class TelemetrySink implements BacktestSink {
     const sessions = [...this.sessions.values()].sort((a, b) => a.sessionId.localeCompare(b.sessionId));
     const projects = [...this.projects.values()].sort((a, b) => a.project.localeCompare(b.project));
 
+    // Several checkouts can share a leaf name; extend each until it is unique
+    // so the project table never shows the same label twice.
+    const displayNames = distinguishingNames(projects.map((p) => p.project));
+    for (const p of projects) {
+      if (p.project !== UNKNOWN_PROJECT) p.name = displayNames.get(p.project) ?? p.name;
+    }
+
     const totals = {
       events: this.events,
       byEvent: sortRecord(this.byEvent),
@@ -342,7 +353,7 @@ export const IMPORT_GAPS: readonly string[] = [
   'Notification events (permission prompts / idle alerts) leave no transcript trace and are not reconstructed — no HUMAN_ACTIVE signal exists in imported data.',
   'tmux pane fields are runtime-only and absent from imported envelopes.',
   'Stop timing is approximated by the last assistant message of each turn.',
-  'Estimated cost is omitted: the repo has no model price table.'
+  'Estimated cost uses published list rates (config/prices.json) and ignores negotiated discounts, the Batch API discount, inference-geo multipliers, fast mode, and per-search server-tool charges.'
 ];
 
 export interface BacktestOptions {
@@ -356,8 +367,27 @@ export interface BacktestOptions {
   /** Also write the JSON report to this path. */
   jsonOut?: string;
   extraSinks?: BacktestSink[];
+  /**
+   * Working-directory globs to drop. When given (even as an empty array) this
+   * replaces the config defaults, so `--exclude ''` replays the whole corpus.
+   */
+  exclude?: string[];
+  /** Drop sessions with fewer than this many turns (UserPromptSubmit events). */
+  minTurns?: number;
   env?: NodeJS.ProcessEnv;
   out?: (line: string) => void;
+}
+
+/** What corpus hygiene removed, reported so filtering is never silent. */
+export interface ExclusionSummary {
+  rules: string[];
+  minTurns: number | null;
+  sessionsExcluded: number;
+  eventsExcluded: number;
+  /** Rule → sessions dropped. `min-turns:<n>` is reported as a rule too. */
+  byRule: Record<string, number>;
+  sessionsKept: number;
+  eventsKept: number;
 }
 
 export interface BacktestReport {
@@ -368,7 +398,58 @@ export interface BacktestReport {
     generation: unknown;
   };
   sinks: Record<string, unknown>;
+  excluded: ExclusionSummary;
   gaps: string[];
+}
+
+/**
+ * Applies corpus hygiene to per-session timelines. Each corpus file is one
+ * session, so filtering happens whole-file: a session is either replayed or it
+ * is not, and no partial timeline ever reaches the engine.
+ */
+export function applyCorpusFilters(
+  timelines: readonly EventEnvelope[][],
+  excludeGlobs: readonly string[],
+  minTurns: number | null
+): { kept: EventEnvelope[][]; summary: ExclusionSummary } {
+  const kept: EventEnvelope[][] = [];
+  const summary: ExclusionSummary = {
+    rules: [...excludeGlobs],
+    minTurns,
+    sessionsExcluded: 0,
+    eventsExcluded: 0,
+    byRule: {},
+    sessionsKept: 0,
+    eventsKept: 0
+  };
+
+  const drop = (rule: string, events: number): void => {
+    summary.sessionsExcluded += 1;
+    summary.eventsExcluded += events;
+    summary.byRule[rule] = (summary.byRule[rule] ?? 0) + 1;
+  };
+
+  for (const timeline of timelines) {
+    if (timeline.length === 0) continue;
+    const cwd = timeline.find((e) => e.cwd)?.cwd;
+    const rule = cwd ? matchingGlob(cwd, excludeGlobs) : null;
+    if (rule) {
+      drop(rule, timeline.length);
+      continue;
+    }
+    if (minTurns !== null) {
+      const turns = timeline.reduce((n, e) => (e.event === 'UserPromptSubmit' ? n + 1 : n), 0);
+      if (turns < minTurns) {
+        drop(`min-turns:${minTurns}`, timeline.length);
+        continue;
+      }
+    }
+    kept.push(timeline);
+    summary.sessionsKept += 1;
+    summary.eventsKept += timeline.length;
+  }
+
+  return { kept, summary };
 }
 
 function corpusFiles(dir: string): string[] {
@@ -405,9 +486,18 @@ export async function runBacktest(options: BacktestOptions = {}): Promise<number
     timelines.push(parseEventFile(content));
   }
 
-  const envelopes = mergeTimelines(timelines);
+  const config = loadConfig(undefined, env);
+  const excludeGlobs = (options.exclude ?? config.corpus.exclude).filter((g) => g !== '');
+  const minTurns = options.minTurns ?? null;
+  const { kept, summary: excluded } = applyCorpusFilters(timelines, excludeGlobs, minTurns);
+
+  const envelopes = mergeTimelines(kept);
   if (envelopes.length === 0) {
-    console.error('ccidle backtest: no parseable events in the corpus');
+    console.error(
+      excluded.sessionsExcluded > 0
+        ? `ccidle backtest: corpus hygiene excluded all ${excluded.sessionsExcluded} session(s); relax --exclude/--min-turns`
+        : 'ccidle backtest: no parseable events in the corpus'
+    );
     return 1;
   }
 
@@ -424,6 +514,7 @@ export async function runBacktest(options: BacktestOptions = {}): Promise<number
     telemetry: telemetry.summary(),
     economy: { stats: state.stats, resources: state.resources, generation: state.generation },
     sinks: Object.fromEntries(options.extraSinks?.map((s) => [s.name, s.summary()]) ?? []),
+    excluded,
     gaps: [...IMPORT_GAPS]
   };
 
@@ -441,6 +532,20 @@ export async function runBacktest(options: BacktestOptions = {}): Promise<number
   return 0;
 }
 
+/** One line stating what hygiene removed, present even when it removed nothing. */
+export function formatExcluded(e: ExclusionSummary): string {
+  const active: string[] = [...e.rules];
+  if (e.minTurns !== null) active.push(`min-turns:${e.minTurns}`);
+  if (active.length === 0) return 'Excluded: none (no hygiene rules active)';
+  if (e.sessionsExcluded === 0) {
+    return `Excluded: 0 sessions; rules active: ${active.map((r) => `\`${r}\``).join(', ')}`;
+  }
+  return (
+    `Excluded: ${e.sessionsExcluded} session(s) / ${e.eventsExcluded.toLocaleString('en-US')} event(s) ` +
+    `by ${active.map((r) => `\`${r}\``).join(', ')} — ${e.sessionsKept} session(s) replayed`
+  );
+}
+
 function formatTokens(t: TokenTotals): string {
   return `in ${t.inputTokens.toLocaleString('en-US')} · out ${t.outputTokens.toLocaleString('en-US')} · cache-r ${t.cacheReadTokens.toLocaleString('en-US')} · cache-w ${t.cacheWriteTokens.toLocaleString('en-US')}`;
 }
@@ -452,11 +557,22 @@ export function formatBacktestMarkdown(report: BacktestReport, fileCount: number
   lines.push('');
   lines.push('## Corpus');
   lines.push('');
-  lines.push(`- Event files replayed: ${fileCount}`);
+  lines.push(`- Event files read: ${fileCount}`);
   lines.push(`- Sessions: ${t.corpus.sessions}`);
   lines.push(`- Events: ${t.corpus.events}`);
   lines.push(`- Span: ${t.corpus.firstEvent ?? 'n/a'} → ${t.corpus.lastEvent ?? 'n/a'} (${t.corpus.spanDays} day(s))`);
+  lines.push(`- ${formatExcluded(report.excluded)}`);
   lines.push('');
+  if (report.excluded.sessionsExcluded > 0) {
+    lines.push('### Excluded by rule');
+    lines.push('');
+    lines.push('| Rule | Sessions |');
+    lines.push('|---|---:|');
+    for (const [rule, n] of Object.entries(report.excluded.byRule).sort(([a], [b]) => a.localeCompare(b))) {
+      lines.push(`| \`${rule}\` | ${n} |`);
+    }
+    lines.push('');
+  }
   lines.push('## Totals');
   lines.push('');
   lines.push(`- Turns (UserPromptSubmit): ${t.totals.turns}`);
@@ -466,22 +582,54 @@ export function formatBacktestMarkdown(report: BacktestReport, fileCount: number
   lines.push(`- Subagent completions: ${t.totals.subagentStops}`);
   lines.push(`- Tokens: ${formatTokens(t.totals.tokens)}`);
   lines.push('');
-  lines.push('| Model | Input | Output | Cache read | Cache write |');
-  lines.push('|---|---:|---:|---:|---:|');
+
+  const prices = loadPriceTable();
+  const unknownDisplay = prices?.unknownModel?.display ?? 'n/a';
+  lines.push('| Model | Input | Output | Cache read | Cache write | Est. cost |');
+  lines.push('|---|---:|---:|---:|---:|---:|');
+  let pricedTotal = 0;
+  const unpriced: string[] = [];
   for (const [model, tok] of Object.entries(t.totals.tokensByModel)) {
+    const cost = costOf(priceFor(prices, model), tok);
+    if (cost) pricedTotal += cost.total;
+    else unpriced.push(model);
     lines.push(
-      `| ${model} | ${tok.inputTokens.toLocaleString('en-US')} | ${tok.outputTokens.toLocaleString('en-US')} | ${tok.cacheReadTokens.toLocaleString('en-US')} | ${tok.cacheWriteTokens.toLocaleString('en-US')} |`
+      `| ${model} | ${tok.inputTokens.toLocaleString('en-US')} | ${tok.outputTokens.toLocaleString('en-US')} | ${tok.cacheReadTokens.toLocaleString('en-US')} | ${tok.cacheWriteTokens.toLocaleString('en-US')} | ${formatUsd(cost ? cost.total : null, unknownDisplay)} |`
     );
+  }
+  const anyPriced = Object.keys(t.totals.tokensByModel).length > unpriced.length;
+  lines.push(
+    `| **Total** | ${t.totals.tokens.inputTokens.toLocaleString('en-US')} | ${t.totals.tokens.outputTokens.toLocaleString('en-US')} | ${t.totals.tokens.cacheReadTokens.toLocaleString('en-US')} | ${t.totals.tokens.cacheWriteTokens.toLocaleString('en-US')} | ${formatUsd(anyPriced ? pricedTotal : null, unknownDisplay)} |`
+  );
+  lines.push('');
+  if (prices) {
+    lines.push(
+      `Estimated cost is **approximate**: ${prices.metadata.source} list rates (${prices.metadata.unit}, ${prices.metadata.currency}), retrieved ${prices.metadata.retrieved}. ` +
+        'Cache writes are costed at the 5-minute rate. Discounts, batch pricing, inference-geo multipliers, and server-tool charges are not applied.'
+    );
+    if (unpriced.length > 0) {
+      lines.push('');
+      lines.push(
+        `No published rate for ${unpriced.map((m) => `\`${m}\``).join(', ')} — shown as ${unknownDisplay} and excluded from the total.`
+      );
+    }
+  } else {
+    lines.push('Estimated cost unavailable: config/prices.json could not be read.');
   }
   lines.push('');
   lines.push('## Projects (regions)');
   lines.push('');
-  lines.push('| Project | Sessions | Turns | Tool calls | Failures | Subagents | Output tokens |');
-  lines.push('|---|---:|---:|---:|---:|---:|---:|');
+  lines.push('| Project | Sessions | Turns | Tool calls | Failures | Subagents | Output tokens | Est. cost |');
+  lines.push('|---|---:|---:|---:|---:|---:|---:|---:|');
   for (const [id, p] of Object.entries(t.projects)) {
     const output = Object.values(p.tokensByModel).reduce((sum, tok) => sum + tok.outputTokens, 0);
+    let projectCost: number | null = null;
+    for (const [model, tok] of Object.entries(p.tokensByModel)) {
+      const cost = costOf(priceFor(prices, model), tok);
+      if (cost) projectCost = (projectCost ?? 0) + cost.total;
+    }
     lines.push(
-      `| ${p.name === id ? id : `${p.name} (\`${id}\`)`} | ${p.sessions} | ${p.turns} | ${p.toolCalls} | ${p.toolFailures} | ${p.subagentStops} | ${output.toLocaleString('en-US')} |`
+      `| ${p.name === id ? id : `${p.name} (\`${id}\`)`} | ${p.sessions} | ${p.turns} | ${p.toolCalls} | ${p.toolFailures} | ${p.subagentStops} | ${output.toLocaleString('en-US')} | ${formatUsd(projectCost, unknownDisplay)} |`
     );
   }
   lines.push('');

@@ -4337,6 +4337,36 @@ var TokenUsagePayloadSchema = external_exports.object({
   )
 });
 
+// ../shared/src/names.ts
+function segmentsOf(p) {
+  return p.split("/").filter((s) => s !== "");
+}
+function distinguishingNames(paths) {
+  const unique = [...new Set(paths)];
+  const segments = new Map(unique.map((p) => [p, segmentsOf(p)]));
+  const names = /* @__PURE__ */ new Map();
+  for (const p of unique) {
+    const segs = segments.get(p);
+    if (segs.length === 0) {
+      names.set(p, p);
+      continue;
+    }
+    let name = p;
+    for (let depth = 1; depth <= segs.length; depth += 1) {
+      const candidate = segs.slice(-depth).join("/");
+      const collides = unique.some(
+        (other) => other !== p && segments.get(other).slice(-depth).join("/") === candidate
+      );
+      if (!collides) {
+        name = candidate;
+        break;
+      }
+    }
+    names.set(p, name);
+  }
+  return names;
+}
+
 // ../game/src/format.ts
 function formatAmount(value) {
   const abs = Math.abs(value);
@@ -4434,6 +4464,14 @@ function regionName(cwd) {
   const base = idx >= 0 ? trimmed.slice(idx + 1) : trimmed;
   return base === "" ? cwd : base;
 }
+function refreshRegionNames(draft) {
+  const ids = Object.keys(draft.regions).filter((id) => id !== UNASSIGNED_REGION_ID);
+  const names = distinguishingNames(ids);
+  for (const id of ids) {
+    const region = draft.regions[id];
+    if (region) region.name = names.get(id) ?? regionName(id);
+  }
+}
 function ensureRegion(draft, effects, regionId, nowMs) {
   const existing = draft.regions[regionId];
   if (existing) return existing;
@@ -4450,6 +4488,7 @@ function ensureRegion(draft, effects, regionId, nowMs) {
     totals: { compute: 0, engineering: 0, research: 0, outputTokens: 0, incidents: 0 }
   };
   draft.regions[regionId] = region;
+  refreshRegionNames(draft);
   narrate(draft, effects, nowMs, `\u26CF region "${region.name}" founded`, "ceremony");
   return region;
 }
@@ -4549,13 +4588,17 @@ function applyToolCall(draft, region, envelope2, nowMs, effects) {
     region.totals.research += gain;
   }
 }
+function economyTokens(payload) {
+  let outputTokens = 0;
+  for (const totals of Object.values(payload.byModel)) {
+    outputTokens += totals.outputTokens;
+  }
+  return { outputTokens };
+}
 function applyTokenUsage(draft, region, envelope2, nowMs, effects) {
   const parsed = TokenUsagePayloadSchema.safeParse(envelope2.payload);
   if (!parsed.success) return;
-  let outputTokens = 0;
-  for (const totals of Object.values(parsed.data.byModel)) {
-    outputTokens += totals.outputTokens;
-  }
+  const { outputTokens } = economyTokens(parsed.data);
   if (outputTokens <= 0) return;
   const { fullRateTokensPerWindow: fullN, windowMs, perOutputToken } = BALANCE.compute;
   if (region.window.startMs === 0 || nowMs >= region.window.startMs && nowMs - region.window.startMs > windowMs) {
@@ -4633,7 +4676,7 @@ function applyTrainingRun(draft, region, envelope2, nowMs, effects) {
   const lab = BALANCE.lab;
   const minutes = Math.min(lab.trainingMaxMinutes, subagentMinutes(envelope2.payload) ?? lab.trainingDefaultMinutes);
   const dataFraction = lab.trainingDataCost > 0 ? Math.min(1, draft.resources.research / lab.trainingDataCost) : 1;
-  const consumed = lab.trainingDataCost * dataFraction;
+  const consumed = Math.min(draft.resources.research, lab.trainingDataCost);
   draft.resources.research -= consumed;
   draft.stats.researchSpent += consumed;
   const efficiency = lab.trainingMinEfficiency + (1 - lab.trainingMinEfficiency) * dataFraction;
@@ -4676,11 +4719,11 @@ function spawnIncident(draft, region, nowMs, effects) {
     draft.resources.engineering += BALANCE.engineering.postMortem;
     draft.stats.engineeringFromPostMortems += BALANCE.engineering.postMortem;
     region.totals.engineering += BALANCE.engineering.postMortem;
-    narrate(draft, effects, nowMs, `\u26A1 ${title} in "${region.name}" \u2014 self-healed (+${BALANCE.engineering.postMortem} eng)`, "info");
+    narrate(draft, effects, nowMs, `\u21AF ${title} in "${region.name}" \u2014 self-healed (+${BALANCE.engineering.postMortem} eng)`, "info");
     return;
   }
   region.incidents.push({ id: `inc-${seq}`, title, startedAt: new Date(nowMs).toISOString() });
-  narrate(draft, effects, nowMs, `\u26A1 incident in "${region.name}": ${title} \u2014 [a] to acknowledge`, "bad");
+  narrate(draft, effects, nowMs, `\u21AF incident in "${region.name}": ${title} \u2014 [a] to acknowledge`, "bad");
 }
 function applyAction(draft, action, nowMs, effects) {
   switch (action.type) {
@@ -5102,7 +5145,7 @@ var NARRATION_TONE = {
 };
 function statusText(game) {
   const incidents = Object.values(game.regions).reduce((n, region) => n + region.incidents.length, 0);
-  const alert = incidents > 0 ? ` \xB7 \u26A1${incidents}` : "";
+  const alert = incidents > 0 ? ` \xB7 \u21AF${incidents}` : "";
   return `cc-idle ${formatAmount(game.resources.compute)} FLOPS \xB7 Gen-${game.generation}${alert}`;
 }
 function nextStep(game, region) {
@@ -5366,7 +5409,7 @@ function register(on) {
     } else {
       const focus = focusedRegion(game, selected);
       const lab = labView(game, Math.min(24, Math.max(8, width - 24)));
-      const regionBlock = focus ? /* @__PURE__ */ h(Box, { key: "region", flexDirection: "column" }, /* @__PURE__ */ h(Text, { wrap: "truncate" }, /* @__PURE__ */ h(Text, { bold: true, color: "cyan" }, focus.region.name), " ", /* @__PURE__ */ h(Text, { dimColor: true }, focus.position, "/", focus.count), " ", /* @__PURE__ */ h(Text, { color: TONE_COLOR[REGION_STATUS[focus.region.status].tone] }, REGION_STATUS[focus.region.status].text)), regionLines(focus.region).map((line, i) => /* @__PURE__ */ h(Text, { key: `region-line-${i}`, dimColor: i > 0, wrap: "truncate" }, line)), /* @__PURE__ */ h(Text, { wrap: "truncate" }, rackDiagram(focus.region, width)), focus.region.incidents.map((incident) => /* @__PURE__ */ h(Text, { key: incident.id, color: "red", wrap: "truncate" }, "\u26A1 ", incident.title)), /* @__PURE__ */ h(Box, { flexDirection: "row", columnGap: 2, flexWrap: "wrap" }, infraActions(game, focus.region).map(
+      const regionBlock = focus ? /* @__PURE__ */ h(Box, { key: "region", flexDirection: "column" }, /* @__PURE__ */ h(Text, { wrap: "truncate" }, /* @__PURE__ */ h(Text, { bold: true, color: "cyan" }, focus.region.name), " ", /* @__PURE__ */ h(Text, { dimColor: true }, focus.position, "/", focus.count), " ", /* @__PURE__ */ h(Text, { color: TONE_COLOR[REGION_STATUS[focus.region.status].tone] }, REGION_STATUS[focus.region.status].text)), regionLines(focus.region).map((line, i) => /* @__PURE__ */ h(Text, { key: `region-line-${i}`, dimColor: i > 0, wrap: "truncate" }, line)), /* @__PURE__ */ h(Text, { wrap: "truncate" }, rackDiagram(focus.region, width)), focus.region.incidents.map((incident) => /* @__PURE__ */ h(Text, { key: incident.id, color: "red", wrap: "truncate" }, "\u21AF ", incident.title)), /* @__PURE__ */ h(Box, { flexDirection: "row", columnGap: 2, flexWrap: "wrap" }, infraActions(game, focus.region).map(
         (action) => actionButton(
           action,
           () => act($, { type: "buy", regionId: focus.region.id, tierId: action.tierId })
@@ -5408,7 +5451,7 @@ function register(on) {
         key: `feed-${i}`,
         color: TONE_COLOR[NARRATION_TONE[entry.kind]],
         dimColor: NARRATION_TONE[entry.kind] === "dim",
-        wrap: "truncate"
+        wrap: "wrap"
       },
       entry.text
     ));

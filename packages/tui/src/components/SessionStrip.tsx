@@ -50,7 +50,8 @@ function SessionRow({ session, index, now, highlighted }: SessionRowProps): Reac
   const isHumanActive = session.state === 'HUMAN_ACTIVE';
   const isDead = session.state === 'DEAD';
   return (
-    <Box gap={1}>
+    // One row per session: cwd basenames are arbitrary, so clip rather than wrap.
+    <Box gap={1} flexWrap="nowrap">
       <Text color={highlighted ? 'cyan' : undefined}>
         {highlighted ? '▶' : ' '}
         {index + 1}
@@ -62,7 +63,9 @@ function SessionRow({ session, index, now, highlighted }: SessionRowProps): Reac
       <Text>{elapsedSince(session.stateSince, now)}</Text>
       <Text>tools:{session.toolCallsThisTurn}</Text>
       <Text>tok:{totalTokens(session)}</Text>
-      <Text dimColor>{cwdBasename(session.cwd)}</Text>
+      <Text dimColor wrap="truncate-end">
+        {cwdBasename(session.cwd)}
+      </Text>
     </Box>
   );
 }

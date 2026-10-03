@@ -114,6 +114,6 @@ describe('pane view model', () => {
       s.resources.compute = 12_345;
       s.regions['/p/b']!.incidents.push({ id: 'i1', title: 'x', startedAt: '2026-10-02T10:00:00Z' });
     });
-    expect(statusText(g)).toBe('cc-idle 12.3K FLOPS · Gen-1 · ⚡1');
+    expect(statusText(g)).toBe('cc-idle 12.3K FLOPS · Gen-1 · ↯1');
   });
 });

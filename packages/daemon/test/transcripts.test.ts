@@ -50,6 +50,19 @@ describe('parseUsageDeltas', () => {
     expect(parseUsageDeltas(content)).toEqual({});
   });
 
+  it('counts one response once although each content-block line repeats its usage', () => {
+    const usage = { input_tokens: 10, output_tokens: 50 };
+    const block = (uuid: string) =>
+      JSON.stringify({ uuid, message: { id: 'msg_1', model: 'claude-opus-4', usage } }) + '\n';
+    const deltas = parseUsageDeltas(block('a') + block('b') + block('c'));
+    expect(deltas['claude-opus-4']).toEqual({
+      inputTokens: 10,
+      outputTokens: 50,
+      cacheReadTokens: 0,
+      cacheWriteTokens: 0
+    });
+  });
+
   it('skips all-zero usage entries', () => {
     const content = transcriptLine('claude-opus-4', { input_tokens: 0, output_tokens: 0 });
     expect(parseUsageDeltas(content)).toEqual({});
@@ -90,6 +103,25 @@ describe('TranscriptReader', () => {
     expect(second!.payload.byModel).toEqual({
       'claude-opus-4': { inputTokens: 5, outputTokens: 2, cacheReadTokens: 0, cacheWriteTokens: 0 }
     });
+  });
+
+  it('does not recount a response whose lines straddle two polls', () => {
+    const dir = mkTmpDir();
+    cleanups.push(() => fs.rmSync(dir, { recursive: true, force: true }));
+    const transcriptPath = path.join(dir, 'transcript.jsonl');
+    const eventPath = path.join(dir, 'sess-1.jsonl');
+    fs.writeFileSync(eventPath, '');
+    const block = JSON.stringify({
+      message: { id: 'msg_1', model: 'claude-opus-4', usage: { input_tokens: 10, output_tokens: 50 } }
+    }) + '\n';
+
+    fs.writeFileSync(transcriptPath, block);
+    const reader = new TranscriptReader();
+    reader.setTranscriptPath('sess-1', transcriptPath);
+    expect(reader.poll('sess-1', eventPath, '2026-08-17T10:00:00.000Z')).not.toBeNull();
+
+    fs.appendFileSync(transcriptPath, block);
+    expect(reader.poll('sess-1', eventPath, '2026-08-17T10:00:10.000Z')).toBeNull();
   });
 
   it('tolerates a missing or unreadable transcript file silently', () => {
