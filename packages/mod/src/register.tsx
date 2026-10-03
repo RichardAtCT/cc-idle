@@ -2,8 +2,23 @@ import { atom, read, update } from 'claude-code';
 import type { EngineInterface, On, RenderChildren } from 'claude-code';
 import type { IdleNeedsYou, IdleView } from '../../../plugins/cc-idle/types';
 import type { EventEnvelope } from '@ccidle/shared';
-import type { GameAction, GameInput } from './game.js';
+import type { GameAction, GameInput, Narration } from './game.js';
 import { GameSync } from './sync.js';
+import {
+  BOARD_MAX_TOKENS,
+  BOARD_MODEL,
+  BOARD_SYSTEM,
+  BOARD_TIMEOUT_MS,
+  MAX_INPUT_CHARS,
+  appendLine,
+  canReact,
+  chatPrompt,
+  cleanReply,
+  clipInput,
+  isReactable,
+  reactionPrompt,
+  type BoardLine
+} from './board.js';
 import {
   promptSubmitted,
   sessionEnded,
@@ -47,6 +62,7 @@ const rev = atom({ plugin: 'cc-idle', key: 'rev' } as const, 0);
 const view = atom({ plugin: 'cc-idle', key: 'view' } as const, 'main' as IdleView);
 const regionIndex = atom({ plugin: 'cc-idle', key: 'region' } as const, 0);
 const needsYou = atom({ plugin: 'cc-idle', key: 'needsYou' } as const, '' as IdleNeedsYou);
+const boardRev = atom({ plugin: 'cc-idle', key: 'board' } as const, 0);
 
 type Api = EngineInterface;
 
@@ -56,6 +72,16 @@ let ref: SessionRef | null = null;
 let flushTimer: { cancel: () => void } | null = null;
 let paneFocused = false;
 let onboarded = false;
+// The board chat is this session's alone: never in $.store, which every session shares.
+let boardLines: BoardLine[] = [];
+let boardDraft = '';
+let boardStop: AbortController | null = null;
+let lastReactMs: number | null = null;
+
+const BOARD_UNAVAILABLE: BoardLine = {
+  who: 'system',
+  text: 'The board is unavailable right now.'
+};
 
 const NEEDS_YOU_TEXT: Record<Exclude<IdleNeedsYou, ''>, string> = {
   done: 'Claude finished — your turn',
@@ -88,7 +114,62 @@ async function record($: Api, input: GameInput): Promise<void> {
       if (effect.kind === 'ceremony' || effect.kind === 'bad') $.ui.toast(effect.text);
     }
   }
+  const big = effects.find(isReactable);
+  if (big) void react($, big);
   scheduleFlush($);
+}
+
+async function bumpBoard($: Api): Promise<void> {
+  await update($, boardRev, (n) => n + 1);
+}
+
+/** One Haiku call in character; a newer call or leaving the chat cuts the older one. */
+async function askBoard($: Api, prompt: string): Promise<void> {
+  boardStop?.abort();
+  const stop = new AbortController();
+  boardStop = stop;
+  await bumpBoard($);
+  let line: BoardLine | null = BOARD_UNAVAILABLE;
+  try {
+    const result = await $.model.complete(
+      {
+        model: BOARD_MODEL,
+        system: BOARD_SYSTEM,
+        prompt,
+        maxTokens: BOARD_MAX_TOKENS,
+        effort: 'low',
+        timeoutMs: BOARD_TIMEOUT_MS
+      },
+      { signal: stop.signal }
+    );
+    if (result.isAnswered) {
+      const text = cleanReply(result.text);
+      if (text) line = { who: 'board', text };
+    } else if (result.reason === 'aborted' && stop.signal.aborted) {
+      line = null; // we cut it; a timeout still says the board is unavailable
+    }
+  } catch {
+    // Only a request the engine refuses to send rejects (a blocked model).
+  }
+  if (boardStop === stop) boardStop = null;
+  if (line && !stop.signal.aborted) boardLines = appendLine(boardLines, line);
+  await bumpBoard($);
+}
+
+function stopBoard(): void {
+  boardStop?.abort();
+  boardStop = null;
+}
+
+/** The board reacts to a big moment: only with the pane in view, nothing in flight, once a minute. */
+async function react($: Api, effect: Narration): Promise<void> {
+  if (!sync || boardStop) return;
+  const panes = await $.ui.panes();
+  if (!panes.some((pane) => pane.id === PANE && pane.isShown && pane.isPlaced)) return;
+  const nowMs = await $.clock.now();
+  if (boardStop || !canReact(nowMs, lastReactMs)) return;
+  lastReactMs = nowMs;
+  await askBoard($, reactionPrompt(sync.state, effect));
 }
 
 function telemetry($: Api, make: (ref: SessionRef, nowMs: number) => EventEnvelope): Promise<void> {
@@ -231,8 +312,12 @@ export function register(on: On): void {
   // ---- the game pane ----
 
   on('ui.render', { component: 'Pane', requestId: 'cc-idle' }, async ($, e) => {
-    const { Box, Text, Button } = $.ui.resolve(e);
+    const elements = $.ui.resolve(e);
+    const { Box, Text, Button } = elements;
+    // The mobile app draws no text field yet.
+    const Input = 'Input' in elements ? elements.Input : null;
     await read($, rev); // subscribe: every economy change redraws
+    await read($, boardRev); // and every board line
     const screen = await read($, view);
     const waiting = await read($, needsYou);
     const selected = await read($, regionIndex);
@@ -316,6 +401,67 @@ export function register(on: On): void {
           </Box>
         )),
         <Button key="tree-back" label="back" hotkey="v" plain onPress={setView('main')} />
+      ];
+    } else if (screen === 'chat') {
+      const game = sync.state;
+      const leaveBoard = async () => {
+        stopBoard();
+        await update($, view, () => 'main' as IdleView);
+      };
+      body = [
+        <Text key="board-title" bold color="magenta">
+          THE BOARD
+        </Text>,
+        ...(boardLines.length === 0
+          ? [
+              <Text key="board-empty" dimColor wrap="wrap">
+                A board member is listening. Keep it short.
+              </Text>
+            ]
+          : boardLines.map((line, i) => (
+              <Text
+                key={`board-${i}`}
+                color={line.who === 'board' ? 'magenta' : undefined}
+                dimColor={line.who === 'system'}
+                wrap="wrap"
+              >
+                {line.who === 'you' ? '› ' : line.who === 'board' ? '☞ ' : ''}
+                {line.text}
+              </Text>
+            ))),
+        boardStop && (
+          <Text key="board-thinking" dimColor>
+            the board is thinking…
+          </Text>
+        ),
+        Input ? (
+          <Input
+            key="board-input"
+            placeholder={`say something (max ${MAX_INPUT_CHARS} chars)`}
+            submitLabel="send"
+            value={boardDraft}
+            autoFocus
+            onInput={(value: string) => {
+              boardDraft = value;
+            }}
+            onSubmit={(value: string) => {
+              const line = clipInput(value);
+              boardDraft = '';
+              // The field holds every key, so an empty Enter is the way back.
+              if (!line) return void leaveBoard();
+              boardLines = appendLine(boardLines, { who: 'you', text: line });
+              void askBoard($, chatPrompt(game, line));
+            }}
+          />
+        ) : (
+          <Text key="board-input" dimColor wrap="wrap">
+            Chat needs the terminal or desktop app.
+          </Text>
+        ),
+        <Text key="board-keys" dimColor wrap="wrap">
+          Enter on an empty line goes back to the game.
+        </Text>,
+        <Button key="board-back" label="back" hotkey="c" plain onPress={leaveBoard} />
       ];
     } else if (screen === 'confirm-ship') {
       body = [
@@ -408,10 +554,19 @@ export function register(on: On): void {
               })
             )}
             <Button key="open-tree" label="breakthroughs" hotkey="v" plain onPress={setView('tree')} />
+            <Button key="open-board" label="board" hotkey="c" plain onPress={setView('chat')} />
             <Button key="open-help" label="how to play" hotkey="i" plain onPress={setView('help')} />
           </Box>
         </Box>
       ];
+      const said = boardLines.findLast((line) => line.who === 'board');
+      if (said) {
+        body.unshift(
+          <Text key="board-said" color="magenta" dimColor wrap="truncate">
+            ☞ board: {said.text}
+          </Text>
+        );
+      }
       const hint = nextStep(game, focus?.region ?? null);
       if (hint) {
         body.unshift(

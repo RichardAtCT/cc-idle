@@ -4997,51 +4997,6 @@ var GameSync = class {
   }
 };
 
-// src/telemetry.ts
-function envelope(ref2, event, nowMs, extra = {}) {
-  return {
-    v: 1,
-    ts: new Date(nowMs).toISOString(),
-    session_id: ref2.sessionId,
-    event,
-    cwd: ref2.cwd,
-    payload: {},
-    ...extra
-  };
-}
-function promptSubmitted(ref2, nowMs) {
-  return envelope(ref2, "UserPromptSubmit", nowMs);
-}
-function toolFinished(ref2, nowMs, tool, isError) {
-  return envelope(ref2, "PostToolUse", nowMs, {
-    tool,
-    payload: { tool_name: tool, tool_response: isError ? { is_error: true } : {} }
-  });
-}
-function tokensUsed(ref2, nowMs, usage) {
-  return envelope(ref2, "TokenUsage", nowMs, {
-    payload: {
-      byModel: {
-        [usage.model]: {
-          inputTokens: usage.input_tokens,
-          outputTokens: usage.output_tokens,
-          cacheReadTokens: usage.cache_read_input_tokens,
-          cacheWriteTokens: usage.cache_creation_input_tokens
-        }
-      }
-    }
-  });
-}
-function turnStopped(ref2, nowMs) {
-  return envelope(ref2, "Stop", nowMs);
-}
-function subagentStopped(ref2, nowMs, durationMs) {
-  return envelope(ref2, "SubagentStop", nowMs, { payload: { duration_ms: durationMs } });
-}
-function sessionEnded(ref2, nowMs) {
-  return envelope(ref2, "SessionEnd", nowMs);
-}
-
 // src/view.ts
 function progressBar(fraction, width) {
   const clamped = Math.max(0, Math.min(1, fraction));
@@ -5174,6 +5129,106 @@ var HELP_LINES = [
   { text: "Esc hands the keyboard back. /idle takes it again. /idle close hides the pane.", tone: "dim" }
 ];
 
+// src/board.ts
+var BOARD_MODEL = "haiku";
+var BOARD_MAX_TOKENS = 80;
+var BOARD_TIMEOUT_MS = 8e3;
+var REACT_COOLDOWN_MS = 6e4;
+var MAX_INPUT_CHARS = 80;
+var MAX_REPLY_CHARS = 140;
+var BOARD_LINES = 8;
+var BOARD_SYSTEM = [
+  "You are a board member of a small frontier AI lab in an idle game.",
+  "You are dry, slightly anxious about burn rate, and secretly proud of the team.",
+  "Answer in ONE short line of at most 20 words. Stay in character.",
+  "No markdown, no quotes, no emoji, no lists.",
+  "Use the lab snapshot for facts; never invent numbers."
+].join(" ");
+function boardContext(game) {
+  const regions = Object.values(game.regions);
+  const incidents = regions.reduce((n, r) => n + r.incidents.length, 0);
+  const recent = game.log.slice(-3).map((entry) => `- ${entry.text}`);
+  return [
+    `Generation ${game.generation}. ${resourceLine(game)}.`,
+    `${regions.length} region(s), ${incidents} open incident(s).`,
+    recent.length > 0 ? `Recent:
+${recent.join("\n")}` : "Nothing has happened yet."
+  ].join("\n");
+}
+function chatPrompt(game, line) {
+  return `${boardContext(game)}
+
+The lab founder says to you: ${line}`;
+}
+function reactionPrompt(game, effect) {
+  return `${boardContext(game)}
+
+This just happened: ${effect.text}
+React to it.`;
+}
+function clipInput(text) {
+  return text.replace(/\s+/g, " ").trim().slice(0, MAX_INPUT_CHARS);
+}
+function cleanReply(text) {
+  const line = text.split("\n").map((l) => l.trim()).find((l) => l.length > 0) ?? "";
+  const bare = line.replace(/[*_`#>]/g, "").replace(/^["'“”‘’]+|["'“”‘’]+$/g, "").trim();
+  return bare.length > MAX_REPLY_CHARS ? `${bare.slice(0, MAX_REPLY_CHARS - 1)}\u2026` : bare;
+}
+function isReactable(effect) {
+  return effect.kind === "ceremony" || effect.kind === "bad";
+}
+function canReact(nowMs, lastMs) {
+  return lastMs === null || nowMs - lastMs >= REACT_COOLDOWN_MS;
+}
+function appendLine(lines, line) {
+  return [...lines, line].slice(-BOARD_LINES);
+}
+
+// src/telemetry.ts
+function envelope(ref2, event, nowMs, extra = {}) {
+  return {
+    v: 1,
+    ts: new Date(nowMs).toISOString(),
+    session_id: ref2.sessionId,
+    event,
+    cwd: ref2.cwd,
+    payload: {},
+    ...extra
+  };
+}
+function promptSubmitted(ref2, nowMs) {
+  return envelope(ref2, "UserPromptSubmit", nowMs);
+}
+function toolFinished(ref2, nowMs, tool, isError) {
+  return envelope(ref2, "PostToolUse", nowMs, {
+    tool,
+    payload: { tool_name: tool, tool_response: isError ? { is_error: true } : {} }
+  });
+}
+function tokensUsed(ref2, nowMs, usage) {
+  return envelope(ref2, "TokenUsage", nowMs, {
+    payload: {
+      byModel: {
+        [usage.model]: {
+          inputTokens: usage.input_tokens,
+          outputTokens: usage.output_tokens,
+          cacheReadTokens: usage.cache_read_input_tokens,
+          cacheWriteTokens: usage.cache_creation_input_tokens
+        }
+      }
+    }
+  });
+}
+function turnStopped(ref2, nowMs) {
+  return envelope(ref2, "Stop", nowMs);
+}
+function subagentStopped(ref2, nowMs, durationMs) {
+  return envelope(ref2, "SubagentStop", nowMs, { payload: { duration_ms: durationMs } });
+}
+function sessionEnded(ref2, nowMs) {
+  return envelope(ref2, "SessionEnd", nowMs);
+}
+
 // src/register.tsx
 var PANE = "cc-idle";
 var FLUSH_DELAY_MS = 1e3;
@@ -5184,11 +5239,20 @@ var rev = atom({ plugin: "cc-idle", key: "rev" }, 0);
 var view = atom({ plugin: "cc-idle", key: "view" }, "main");
 var regionIndex = atom({ plugin: "cc-idle", key: "region" }, 0);
 var needsYou = atom({ plugin: "cc-idle", key: "needsYou" }, "");
+var boardRev = atom({ plugin: "cc-idle", key: "board" }, 0);
 var sync = null;
 var ref = null;
 var flushTimer = null;
 var paneFocused = false;
 var onboarded = false;
+var boardLines = [];
+var boardDraft = "";
+var boardStop = null;
+var lastReactMs = null;
+var BOARD_UNAVAILABLE = {
+  who: "system",
+  text: "The board is unavailable right now."
+};
 var NEEDS_YOU_TEXT = {
   done: "Claude finished \u2014 your turn",
   permission: "Claude needs your permission",
@@ -5216,7 +5280,55 @@ async function record($, input) {
       if (effect.kind === "ceremony" || effect.kind === "bad") $.ui.toast(effect.text);
     }
   }
+  const big = effects.find(isReactable);
+  if (big) void react($, big);
   scheduleFlush($);
+}
+async function bumpBoard($) {
+  await update($, boardRev, (n) => n + 1);
+}
+async function askBoard($, prompt) {
+  boardStop?.abort();
+  const stop = new AbortController();
+  boardStop = stop;
+  await bumpBoard($);
+  let line = BOARD_UNAVAILABLE;
+  try {
+    const result = await $.model.complete(
+      {
+        model: BOARD_MODEL,
+        system: BOARD_SYSTEM,
+        prompt,
+        maxTokens: BOARD_MAX_TOKENS,
+        effort: "low",
+        timeoutMs: BOARD_TIMEOUT_MS
+      },
+      { signal: stop.signal }
+    );
+    if (result.isAnswered) {
+      const text = cleanReply(result.text);
+      if (text) line = { who: "board", text };
+    } else if (result.reason === "aborted" && stop.signal.aborted) {
+      line = null;
+    }
+  } catch {
+  }
+  if (boardStop === stop) boardStop = null;
+  if (line && !stop.signal.aborted) boardLines = appendLine(boardLines, line);
+  await bumpBoard($);
+}
+function stopBoard() {
+  boardStop?.abort();
+  boardStop = null;
+}
+async function react($, effect) {
+  if (!sync || boardStop) return;
+  const panes = await $.ui.panes();
+  if (!panes.some((pane) => pane.id === PANE && pane.isShown && pane.isPlaced)) return;
+  const nowMs = await $.clock.now();
+  if (boardStop || !canReact(nowMs, lastReactMs)) return;
+  lastReactMs = nowMs;
+  await askBoard($, reactionPrompt(sync.state, effect));
 }
 function telemetry($, make) {
   if (!ref) return Promise.resolve();
@@ -5334,8 +5446,11 @@ function register(on) {
     return next(e);
   });
   on("ui.render", { component: "Pane", requestId: "cc-idle" }, async ($, e) => {
-    const { Box, Text, Button } = $.ui.resolve(e);
+    const elements = $.ui.resolve(e);
+    const { Box, Text, Button } = elements;
+    const Input = "Input" in elements ? elements.Input : null;
     await read($, rev);
+    await read($, boardRev);
     const screen = await read($, view);
     const waiting = await read($, needsYou);
     const selected = await read($, regionIndex);
@@ -5395,6 +5510,51 @@ function register(on) {
         ...breakthroughRows(game).map((row) => /* @__PURE__ */ h(Box, { key: `node-${row.nodeId}`, flexDirection: "column" }, actionButton(row, () => act($, { type: "buy-breakthrough", nodeId: row.nodeId })), /* @__PURE__ */ h(Text, { dimColor: true, wrap: "truncate" }, "   ", row.detail))),
         /* @__PURE__ */ h(Button, { key: "tree-back", label: "back", hotkey: "v", plain: true, onPress: setView("main") })
       ];
+    } else if (screen === "chat") {
+      const game2 = sync.state;
+      const leaveBoard = async () => {
+        stopBoard();
+        await update($, view, () => "main");
+      };
+      body = [
+        /* @__PURE__ */ h(Text, { key: "board-title", bold: true, color: "magenta" }, "THE BOARD"),
+        ...boardLines.length === 0 ? [
+          /* @__PURE__ */ h(Text, { key: "board-empty", dimColor: true, wrap: "wrap" }, "A board member is listening. Keep it short.")
+        ] : boardLines.map((line, i) => /* @__PURE__ */ h(
+          Text,
+          {
+            key: `board-${i}`,
+            color: line.who === "board" ? "magenta" : void 0,
+            dimColor: line.who === "system",
+            wrap: "wrap"
+          },
+          line.who === "you" ? "\u203A " : line.who === "board" ? "\u261E " : "",
+          line.text
+        )),
+        boardStop && /* @__PURE__ */ h(Text, { key: "board-thinking", dimColor: true }, "the board is thinking\u2026"),
+        Input ? /* @__PURE__ */ h(
+          Input,
+          {
+            key: "board-input",
+            placeholder: `say something (max ${MAX_INPUT_CHARS} chars)`,
+            submitLabel: "send",
+            value: boardDraft,
+            autoFocus: true,
+            onInput: (value) => {
+              boardDraft = value;
+            },
+            onSubmit: (value) => {
+              const line = clipInput(value);
+              boardDraft = "";
+              if (!line) return void leaveBoard();
+              boardLines = appendLine(boardLines, { who: "you", text: line });
+              void askBoard($, chatPrompt(game2, line));
+            }
+          }
+        ) : /* @__PURE__ */ h(Text, { key: "board-input", dimColor: true, wrap: "wrap" }, "Chat needs the terminal or desktop app."),
+        /* @__PURE__ */ h(Text, { key: "board-keys", dimColor: true, wrap: "wrap" }, "Enter on an empty line goes back to the game."),
+        /* @__PURE__ */ h(Button, { key: "board-back", label: "back", hotkey: "c", plain: true, onPress: leaveBoard })
+      ];
     } else if (screen === "confirm-ship") {
       body = [
         /* @__PURE__ */ h(Text, { key: "ship-warn", color: "magenta", bold: true, wrap: "wrap" }, "Ship Gen-", game.generation, "? Infrastructure and lab staff reset; Reputation and Breakthroughs stay."),
@@ -5442,8 +5602,14 @@ function register(on) {
             if (lab.isShippable) await update($, view, () => "confirm-ship");
             else await act($, { type: "ship-generation" });
           })
-        ), /* @__PURE__ */ h(Button, { key: "open-tree", label: "breakthroughs", hotkey: "v", plain: true, onPress: setView("tree") }), /* @__PURE__ */ h(Button, { key: "open-help", label: "how to play", hotkey: "i", plain: true, onPress: setView("help") })))
+        ), /* @__PURE__ */ h(Button, { key: "open-tree", label: "breakthroughs", hotkey: "v", plain: true, onPress: setView("tree") }), /* @__PURE__ */ h(Button, { key: "open-board", label: "board", hotkey: "c", plain: true, onPress: setView("chat") }), /* @__PURE__ */ h(Button, { key: "open-help", label: "how to play", hotkey: "i", plain: true, onPress: setView("help") })))
       ];
+      const said = boardLines.findLast((line) => line.who === "board");
+      if (said) {
+        body.unshift(
+          /* @__PURE__ */ h(Text, { key: "board-said", color: "magenta", dimColor: true, wrap: "truncate" }, "\u261E board: ", said.text)
+        );
+      }
       const hint = nextStep(game, focus?.region ?? null);
       if (hint) {
         body.unshift(

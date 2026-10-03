@@ -20,9 +20,29 @@ function engine(on: On, store: Record<string, unknown> = {}, { isPlaced = true }
     kv.set(e.key, e.value);
     return { value: undefined };
   });
-  const seen = { statuses: [] as string[], toasts: [] as string[], opened: [] as string[] };
+  const seen = {
+    statuses: [] as string[],
+    toasts: [] as string[],
+    opened: [] as string[],
+    asked: [] as string[]
+  };
+  // Haiku answers in character; the board tests read back what it was asked.
+  on('model.complete', async (_$, e) => {
+    seen.asked.push(e.prompt);
+    return {
+      value: {
+        isAnswered: true as const,
+        text: '"Burn rate noted."\nignored second line',
+        usage: { input_tokens: 50, output_tokens: 6, cache_read_input_tokens: 0, cache_creation_input_tokens: 0 }
+      }
+    };
+  });
+  on('ui.panes', async () => ({
+    value: isPlaced ? [{ id: 'cc-idle', title: 'cc-idle', isShown: true, isFocused: true, isPlaced: true }] : []
+  }));
   on('session.id', async () => ({ value: SESSION }));
-  on('session.cwd', async () => ({ value: CWD }));
+  const where = { cwd: CWD };
+  on('session.cwd', async () => ({ value: where.cwd }));
   on('command.register', async (_$, e) => ({ value: { command: e.name } }));
   on('session.start', async () => ({ cwd: CWD }));
   on('ui.open', async (_$, e) => {
@@ -65,7 +85,7 @@ function engine(on: On, store: Record<string, unknown> = {}, { isPlaced = true }
   on('tool.call', async (_$, e) =>
     e.tool === 'Bash' ? { result: 'exit 1', isError: true as const } : { result: { ok: true } }
   );
-  return { clock, seen, kv };
+  return { clock, seen, kv, where };
 }
 
 const PANE = {
@@ -232,5 +252,57 @@ describe('cc-idle economy', () => {
     const after = await $.ui.mount({ ...PANE, surface: 'terminal' });
     expect(await after.find({ text: /needs your permission/ })).toBeUndefined();
     await after.unmount();
+  });
+});
+
+describe('the board member', () => {
+  test('a short chat line gets one clean in-character reply', async ($, on) => {
+    const { seen } = engine(on);
+    await $.session.start(STARTED);
+    const ui = await $.ui.mount({ ...PANE, surface: 'terminal' });
+    await ui.press({ key: 'open-board' });
+    expect(await ui.find({ text: /THE BOARD/ })).toBeDefined();
+    await ui.input({ key: 'board-input', text: '  are we   doomed?  ' });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(seen.asked.at(-1)).toMatch(/says to you: are we doomed\?$/);
+    expect(await ui.find({ text: /are we doomed\?/ })).toBeDefined();
+    expect(await ui.find({ text: /Burn rate noted\.$/ })).toBeDefined();
+    expect(await ui.find({ text: /ignored second line/ })).toBeUndefined();
+    // An empty Enter goes back: the focused field holds every key, c included.
+    await ui.input({ key: 'board-input', text: '   ' });
+    expect(await ui.find({ text: /THE BOARD/ })).toBeUndefined();
+    expect(await ui.find({ text: /board: Burn rate noted/ })).toBeDefined();
+    expect(seen.asked).toHaveLength(1);
+    await ui.unmount();
+  });
+
+  test('big moments get a reaction at most once a minute', async ($, on) => {
+    const { clock, seen, where } = engine(on);
+    const reactions = () => seen.asked.filter((prompt) => prompt.includes('This just happened'));
+    await $.session.start(STARTED);
+    // Founding the region is a ceremony: the board reacts.
+    await $.turn.start({ text: 'run the tests', turnId: 't1' });
+    await clock.advance(1_000);
+    expect(reactions()).toHaveLength(1);
+    expect(reactions()[0]).toContain('founded');
+    // An incident a second later falls inside the cooldown.
+    await $.tool.call({ tool: 'Bash', tool_use_id: 'tu1', command: 'false' } as never);
+    await clock.advance(1_000);
+    expect(reactions()).toHaveLength(1);
+    // A minute on, a second region's founding earns one more.
+    await clock.advance(60_000);
+    where.cwd = '/work/other';
+    await $.turn.start({ text: 'and here', turnId: 't2' });
+    await clock.advance(1_000);
+    expect(reactions()).toHaveLength(2);
+  });
+
+  test('no reaction while the pane is not in view', async ($, on) => {
+    const { clock, seen } = engine(on, {}, { isPlaced: false });
+    await $.session.start(STARTED);
+    await $.turn.start({ text: 'run the tests', turnId: 't1' });
+    await $.tool.call({ tool: 'Bash', tool_use_id: 'tu1', command: 'false' } as never);
+    await clock.advance(1_000);
+    expect(seen.asked).toHaveLength(0);
   });
 });

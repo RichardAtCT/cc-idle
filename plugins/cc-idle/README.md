@@ -47,10 +47,24 @@ ignore that warning.
 | `e` | Run an experiment |
 | `s` | Ship the generation (asks `y` / `n` first) |
 | `v` | Breakthrough tree (`1`–`6` buy, `v` back) |
+| `c` | Talk to the board (Enter on an empty line goes back) |
 | `i` | How to play (`i` back) |
 
 The original TUI's `tab` and `P` became `n` and `s`, because a mod's hotkeys must be a single
 lowercase letter or digit, and Tab and the arrow keys stay Claude Code's.
+
+## The board
+
+A board member of your lab lives in the pane. It is Haiku, run through your own Claude Code
+session, so each line it says is one small Haiku call on your account.
+
+- Press `c` to open the board, type a short line (80 characters at most) and press Enter. It
+  answers in one line. The text field takes every key, so Enter on an empty line goes back to
+  the game. Esc hands the keyboard to the prompt, as on every screen.
+- It also reacts by itself to big moments: a region founded, a generation shipped, a
+  breakthrough, an incident. It does so at most once a minute, and only while the pane is in view.
+  Its last word shows under the hint on the main screen.
+- The chat stays in this session. It is not part of the shared save.
 
 ## How it works
 
@@ -73,8 +87,9 @@ save, replays its queued events on top and writes it back. Every 5 seconds it pi
 sessions' writes. Only a write that lands between another session's read and its write is lost.
 
 **What it touches.** `claude plugin validate plugins/cc-idle` lists every call the mod makes:
-`$.store`, `$.state`, `$.ui`, `$.clock`, `$.command.register`, `$.session.id` and `$.session.cwd`.
-It makes no filesystem, network, process or model calls. It never denies or rewrites a tool call,
+`$.store`, `$.state`, `$.ui`, `$.clock`, `$.model.complete`, `$.command.register`, `$.session.id`
+and `$.session.cwd`. Its only model calls are the board's Haiku calls. It makes no filesystem,
+network or process calls. It never denies or rewrites a tool call,
 prompt or turn: every hook passes its event on unchanged.
 
 ## Developing
