@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { initialGameState, type GameState } from '../src/game.js';
-import { breakthroughRows, focusedRegion, infraActions, labView, rackDiagram, statusText } from '../src/view.js';
+import { generationThreshold, hireCost, initialGameState, type GameState } from '../src/game.js';
+import { breakthroughRows, focusedRegion, infraActions, labView, nextStep, rackDiagram, statusText } from '../src/view.js';
 
 function game(patch: (g: GameState) => void = () => {}): GameState {
   const g = initialGameState('2026-10-02T10:00:00Z');
@@ -36,7 +36,53 @@ describe('pane view model', () => {
     for (const key of keys) expect(key).toMatch(/^[a-z0-9]$/);
     // Region buttons and lab buttons share one pane: no collisions.
     const main = [...infraActions(g, g.regions['/p/a']!), ...labView(g, 10).actions].map((a) => a.hotkey);
-    expect(new Set([...main, 'a', 'n', 'v']).size).toBe(main.length + 3);
+    expect(new Set([...main, 'a', 'n', 'v', 'i']).size).toBe(main.length + 4);
+  });
+
+  describe('next-step hint', () => {
+    const a = (g: GameState) => g.regions['/p/a']!;
+
+    it('tells a player with no region to put Claude to work', () => {
+      const empty = initialGameState('2026-10-02T10:00:00Z');
+      expect(nextStep(empty, null)).toMatch(/Ask Claude/);
+    });
+
+    it('puts an open incident first', () => {
+      const g = game((s) => {
+        s.resources.compute = 1_000;
+        a(s).incidents.push({ id: 'i1', title: 'x', startedAt: '2026-10-02T10:00:00Z' });
+      });
+      expect(nextStep(g, a(g))).toMatch(/Press a/);
+    });
+
+    it('points at the first GPU only once it is affordable', () => {
+      expect(nextStep(game(), a(game()))).toBeNull();
+      const g = game((s) => (s.resources.compute = 1_000));
+      expect(nextStep(g, a(g))).toMatch(/Press g/);
+      const owned = game((s) => {
+        s.resources.compute = 1_000;
+        a(s).infrastructure['gpu'] = 1;
+      });
+      expect(nextStep(owned, a(owned))).toBeNull();
+    });
+
+    it('points at the first researcher once one is affordable', () => {
+      const g = game((s) => {
+        s.resources.reputation = 1_000;
+        s.resources.engineering = hireCost(0);
+        a(s).infrastructure['gpu'] = 1;
+      });
+      expect(labView(g, 1).actions[0]?.isReady).toBe(true);
+      expect(nextStep(g, a(g))).toMatch(/Press h/);
+    });
+
+    it('points at shipping once the model bar is full', () => {
+      const g = game((s) => {
+        a(s).infrastructure['gpu'] = 1;
+        s.lab.modelProgress = generationThreshold(1);
+      });
+      expect(nextStep(g, a(g))).toBe('Press s to ship Gen-1.');
+    });
   });
 
   it('marks purchases ready only when affordable', () => {

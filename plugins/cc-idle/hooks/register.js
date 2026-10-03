@@ -5154,12 +5154,32 @@ function statusText(game) {
   const alert = incidents > 0 ? ` \xB7 \u21AF${incidents}` : "";
   return `cc-idle ${formatAmount(game.resources.compute)} FLOPS \xB7 Gen-${game.generation}${alert}`;
 }
+function nextStep(game, region) {
+  if (!region) return "Ask Claude anything: its work here founds your first region.";
+  if (region.incidents.length > 0) return "Press a to acknowledge the incident.";
+  const gpu = infraActions(game, region)[0];
+  if ((region.infrastructure["gpu"] ?? 0) === 0 && gpu?.isReady) return "Press g to buy your first GPU.";
+  const lab = labView(game, 1);
+  if (game.lab.researchers === 0 && lab.actions[0]?.isReady) return "Press h to hire your first researcher.";
+  if (lab.isShippable) return `Press s to ship Gen-${game.generation}.`;
+  return null;
+}
+var HELP_LINES = [
+  { text: "You run an AI lab. Claude does the work; you spend what it earns.", tone: "info" },
+  { text: "Output tokens \u2192 FLOPS \xB7 Edit/Write/Bash \u2192 eng \xB7 Read/Search \u2192 data", tone: "accent" },
+  { text: "A finished turn pays a bonus. A subagent is a training run. A failed tool is an incident.", tone: "accent" },
+  { text: "g r d buy GPUs, racks and datacenters: more FLOPS per token.", tone: "info" },
+  { text: "h hires researchers and e runs experiments: they fill the model bar.", tone: "info" },
+  { text: "s ships the generation for \u2605 Breakthroughs (v), which outlast the reset.", tone: "info" },
+  { text: "Esc hands the keyboard back. /idle takes it again. /idle close hides the pane.", tone: "dim" }
+];
 
 // src/register.tsx
 var PANE = "cc-idle";
 var FLUSH_DELAY_MS = 1e3;
 var REFRESH_EVERY_MS = 5e3;
 var FEED_LINES = 6;
+var ONBOARDED_KEY = "onboarded";
 var rev = atom({ plugin: "cc-idle", key: "rev" }, 0);
 var view = atom({ plugin: "cc-idle", key: "view" }, "main");
 var regionIndex = atom({ plugin: "cc-idle", key: "region" }, 0);
@@ -5168,6 +5188,7 @@ var sync = null;
 var ref = null;
 var flushTimer = null;
 var paneFocused = false;
+var onboarded = false;
 var NEEDS_YOU_TEXT = {
   done: "Claude finished \u2014 your turn",
   permission: "Claude needs your permission",
@@ -5245,7 +5266,11 @@ function register(on) {
         $.ui.status(statusText(sync.state));
       });
     });
-    void $.ui.open({ id: PANE, title: "cc-idle" });
+    onboarded = await $.store.get(ONBOARDED_KEY) === true;
+    if (!onboarded) await update($, view, () => "help");
+    void $.ui.open({ id: PANE, title: "cc-idle" }).then((opened) => {
+      if (!opened.isPlaced && !onboarded) $.ui.toast("cc-idle is installed: type /idle to play");
+    });
     return next(e);
   });
   on("command.run", { command: "idle" }, async ($, e) => {
@@ -5333,7 +5358,38 @@ function register(on) {
     const banner = waiting !== "" && /* @__PURE__ */ h(Text, { key: "needs-you", color: "yellow", bold: true, wrap: "truncate" }, "\u25B6 ", NEEDS_YOU_TEXT[waiting], paneFocused ? " \u2014 Esc to answer" : "");
     const header = /* @__PURE__ */ h(Text, { key: "resources", wrap: "wrap" }, /* @__PURE__ */ h(Text, { bold: true }, "GEN-", game.generation), " ", /* @__PURE__ */ h(Text, { color: "cyan" }, resourceLine(game)));
     let body;
-    if (screen === "tree") {
+    if (screen === "help") {
+      body = [
+        /* @__PURE__ */ h(Text, { key: "help-title", bold: true, color: "magenta" }, onboarded ? "HOW TO PLAY" : "WELCOME TO CC-IDLE"),
+        ...HELP_LINES.map((line, i) => /* @__PURE__ */ h(
+          Text,
+          {
+            key: `help-${i}`,
+            color: TONE_COLOR[line.tone],
+            dimColor: line.tone === "dim",
+            wrap: "wrap"
+          },
+          line.text
+        )),
+        /* @__PURE__ */ h(
+          Button,
+          {
+            key: "help-done",
+            label: onboarded ? "back" : "got it, start playing",
+            hotkey: "i",
+            plain: true,
+            onPress: async () => {
+              if (!onboarded) {
+                onboarded = true;
+                await $.store.set(ONBOARDED_KEY, true);
+              }
+              await update($, view, () => "main");
+            }
+          }
+        ),
+        !paneFocused && /* @__PURE__ */ h(Text, { key: "help-focus", dimColor: true, wrap: "wrap" }, "Type /idle to give the pane the keyboard.")
+      ];
+    } else if (screen === "tree") {
       body = [
         /* @__PURE__ */ h(Text, { key: "tree-title", bold: true, color: "magenta" }, "BREAKTHROUGHS"),
         ...breakthroughRows(game).map((row) => /* @__PURE__ */ h(Box, { key: `node-${row.nodeId}`, flexDirection: "column" }, actionButton(row, () => act($, { type: "buy-breakthrough", nodeId: row.nodeId })), /* @__PURE__ */ h(Text, { dimColor: true, wrap: "truncate" }, "   ", row.detail))),
@@ -5376,7 +5432,7 @@ function register(on) {
           plain: true,
           onPress: () => update($, regionIndex, (i) => i + 1)
         }
-      ))) : /* @__PURE__ */ h(Text, { key: "region", dimColor: true, wrap: "wrap" }, "No region yet: the first turn Claude works here founds one.");
+      ))) : /* @__PURE__ */ h(Text, { key: "region", dimColor: true, wrap: "wrap" }, "No region yet.");
       body = [
         regionBlock,
         /* @__PURE__ */ h(Box, { key: "lab", flexDirection: "column", marginTop: 1 }, /* @__PURE__ */ h(Text, { wrap: "truncate" }, /* @__PURE__ */ h(Text, { bold: true }, "FRONTIER LAB"), " ", /* @__PURE__ */ h(Text, { dimColor: true }, lab.researchers)), /* @__PURE__ */ h(Text, { wrap: "truncate" }, /* @__PURE__ */ h(Text, { color: lab.isShippable ? "green" : "cyan" }, lab.progressBar), " ", lab.progress), /* @__PURE__ */ h(Box, { flexDirection: "row", columnGap: 2, flexWrap: "wrap" }, lab.actions.map(
@@ -5386,8 +5442,14 @@ function register(on) {
             if (lab.isShippable) await update($, view, () => "confirm-ship");
             else await act($, { type: "ship-generation" });
           })
-        ), /* @__PURE__ */ h(Button, { key: "open-tree", label: "breakthroughs", hotkey: "v", plain: true, onPress: setView("tree") })))
+        ), /* @__PURE__ */ h(Button, { key: "open-tree", label: "breakthroughs", hotkey: "v", plain: true, onPress: setView("tree") }), /* @__PURE__ */ h(Button, { key: "open-help", label: "how to play", hotkey: "i", plain: true, onPress: setView("help") })))
       ];
+      const hint = nextStep(game, focus?.region ?? null);
+      if (hint) {
+        body.unshift(
+          /* @__PURE__ */ h(Text, { key: "hint", color: "yellow", wrap: "wrap" }, "\u2192 ", hint)
+        );
+      }
     }
     const feed = game.log.slice(-FEED_LINES).map((entry, i) => /* @__PURE__ */ h(
       Text,
@@ -5395,7 +5457,7 @@ function register(on) {
         key: `feed-${i}`,
         color: TONE_COLOR[NARRATION_TONE[entry.kind]],
         dimColor: NARRATION_TONE[entry.kind] === "dim",
-        wrap: "truncate"
+        wrap: "wrap"
       },
       entry.text
     ));
