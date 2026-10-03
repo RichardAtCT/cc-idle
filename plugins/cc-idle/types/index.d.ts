@@ -1,8 +1,8 @@
 // The cc-idle mod's $.state contract: session-scoped UI state the pane draws from.
 // The economy itself lives in $.store (shared by every session), not here.
 
-/** Which screen the pane shows. */
-export type IdleView = 'main' | 'tree' | 'confirm-ship';
+/** Which screen the pane shows. 'help' is also the welcome a new player sees first. */
+export type IdleView = 'main' | 'tree' | 'confirm-ship' | 'help';
 
 /** Why Claude Code is waiting on the person, or '' while it isn't. */
 export type IdleNeedsYou = '' | 'done' | 'permission' | 'question';

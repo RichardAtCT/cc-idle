@@ -14,12 +14,14 @@ import {
   type SessionRef
 } from './telemetry.js';
 import {
+  HELP_LINES,
   NARRATION_TONE,
   REGION_STATUS,
   breakthroughRows,
   focusedRegion,
   infraActions,
   labView,
+  nextStep,
   rackDiagram,
   regionLines,
   resourceLine,
@@ -38,6 +40,8 @@ const PANE = 'cc-idle';
 const FLUSH_DELAY_MS = 1_000;
 const REFRESH_EVERY_MS = 5_000;
 const FEED_LINES = 6;
+/** Set once the player dismisses the welcome. Kept apart from the save, whose schema is the engine's. */
+const ONBOARDED_KEY = 'onboarded';
 
 const rev = atom({ plugin: 'cc-idle', key: 'rev' } as const, 0);
 const view = atom({ plugin: 'cc-idle', key: 'view' } as const, 'main' as IdleView);
@@ -51,6 +55,7 @@ let sync: GameSync | null = null;
 let ref: SessionRef | null = null;
 let flushTimer: { cancel: () => void } | null = null;
 let paneFocused = false;
+let onboarded = false;
 
 const NEEDS_YOU_TEXT: Record<Exclude<IdleNeedsYou, ''>, string> = {
   done: 'Claude finished — your turn',
@@ -140,8 +145,13 @@ export function register(on: On): void {
         $.ui.status(statusText(sync.state));
       });
     });
+    // A new player meets the welcome screen first.
+    onboarded = (await $.store.get(ONBOARDED_KEY)) === true;
+    if (!onboarded) await update($, view, () => 'help' as IdleView);
     // Unasked, the pane only seats in a wide terminal; /idle opens it anywhere.
-    void $.ui.open({ id: PANE, title: 'cc-idle' });
+    void $.ui.open({ id: PANE, title: 'cc-idle' }).then((opened) => {
+      if (!opened.isPlaced && !onboarded) $.ui.toast('cc-idle is installed: type /idle to play');
+    });
     return next(e);
   });
 
@@ -257,7 +267,41 @@ export function register(on: On): void {
     );
 
     let body: RenderChildren[];
-    if (screen === 'tree') {
+    if (screen === 'help') {
+      body = [
+        <Text key="help-title" bold color="magenta">
+          {onboarded ? 'HOW TO PLAY' : 'WELCOME TO CC-IDLE'}
+        </Text>,
+        ...HELP_LINES.map((line, i) => (
+          <Text
+            key={`help-${i}`}
+            color={TONE_COLOR[line.tone]}
+            dimColor={line.tone === 'dim'}
+            wrap="wrap"
+          >
+            {line.text}
+          </Text>
+        )),
+        <Button
+          key="help-done"
+          label={onboarded ? 'back' : 'got it, start playing'}
+          hotkey="i"
+          plain
+          onPress={async () => {
+            if (!onboarded) {
+              onboarded = true;
+              await $.store.set(ONBOARDED_KEY, true);
+            }
+            await update($, view, () => 'main' as IdleView);
+          }}
+        />,
+        !paneFocused && (
+          <Text key="help-focus" dimColor wrap="wrap">
+            Type /idle to give the pane the keyboard.
+          </Text>
+        )
+      ];
+    } else if (screen === 'tree') {
       body = [
         <Text key="tree-title" bold color="magenta">
           BREAKTHROUGHS
@@ -342,7 +386,7 @@ export function register(on: On): void {
         </Box>
       ) : (
         <Text key="region" dimColor wrap="wrap">
-          No region yet: the first turn Claude works here founds one.
+          No region yet.
         </Text>
       );
       body = [
@@ -364,9 +408,18 @@ export function register(on: On): void {
               })
             )}
             <Button key="open-tree" label="breakthroughs" hotkey="v" plain onPress={setView('tree')} />
+            <Button key="open-help" label="how to play" hotkey="i" plain onPress={setView('help')} />
           </Box>
         </Box>
       ];
+      const hint = nextStep(game, focus?.region ?? null);
+      if (hint) {
+        body.unshift(
+          <Text key="hint" color="yellow" wrap="wrap">
+            → {hint}
+          </Text>
+        );
+      }
     }
 
     const feed = game.log.slice(-FEED_LINES).map((entry, i) => (

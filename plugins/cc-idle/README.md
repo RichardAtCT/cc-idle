@@ -18,7 +18,10 @@ Or try it from a clone for one session: `claude --plugin-dir ./plugins/cc-idle`.
 ## Play
 
 - In a terminal at least 144 columns wide, the pane opens beside the transcript by itself.
-  Anywhere else, type `/idle`. It works mid-turn, so you can play while Claude works.
+  Anywhere else, type `/idle`. It works mid-turn, so you can play while Claude works. Until you
+  have played once, a toast tells you so.
+- The first time, the pane shows a welcome that explains the game. After that, a yellow
+  `→` line under the header names the next useful move when there is one.
 - `/idle` also gives the pane the keyboard. **Esc** hands it back to the prompt. `/idle close`
   closes the pane.
 - When Claude finishes a turn, asks a question or needs permission, a banner at the top of the
@@ -34,6 +37,7 @@ Or try it from a clone for one session: `claude --plugin-dir ./plugins/cc-idle`.
 | `e` | Run an experiment |
 | `s` | Ship the generation (asks `y` / `n` first) |
 | `v` | Breakthrough tree (`1`–`6` buy, `v` back) |
+| `i` | How to play (`i` back) |
 
 The original TUI's `tab` and `P` became `n` and `s`, because a mod's hotkeys must be a single
 lowercase letter or digit, and Tab and the arrow keys stay Claude Code's.
