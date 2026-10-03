@@ -43,6 +43,15 @@ export function daemonLogPath(env?: NodeJS.ProcessEnv): string {
   return path.join(ccidleHome(env), 'ccidled.log');
 }
 
+/** Log directory for processes that own the terminal and must never use stdout. */
+export function logsDir(env?: NodeJS.ProcessEnv): string {
+  return path.join(ccidleHome(env), 'logs');
+}
+
+export function tuiLogPath(env?: NodeJS.ProcessEnv): string {
+  return path.join(logsDir(env), 'tui.log');
+}
+
 /** Registration records written by `ccidle register` (PRD §3.5). */
 export function registrationsPath(env?: NodeJS.ProcessEnv): string {
   return path.join(ccidleHome(env), 'registrations.json');

@@ -42,6 +42,18 @@ export const ConfigSchema = z.object({
         ])
     })
     .default({}),
+  corpus: z
+    .object({
+      /**
+       * Working-directory globs dropped from `ccidle import` and
+       * `ccidle backtest`. The defaults remove throwaway harness runs, which
+       * are one-turn sessions that would otherwise each found their own
+       * micro-region and skew region-level stats. Override with --exclude, or
+       * clear with --no-default-excludes.
+       */
+      exclude: z.array(z.string()).default(['/private/tmp/**', '**/scratchpad/**'])
+    })
+    .default({}),
   session: z
     .object({
       /** CC_WORKING with no events for this long → STALE; 2× → DEAD. */

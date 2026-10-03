@@ -1,0 +1,60 @@
+{
+  "metadata": {
+    "currency": "USD",
+    "unit": "per million tokens (MTok)",
+    "source": "https://platform.claude.com/docs/en/about-claude/pricing",
+    "retrieved": "2026-08-17",
+    "note": "First-party Claude API list rates. Partner-operated platforms (Amazon Bedrock, Google Cloud) price separately and are not covered here. Costs derived from this table are estimates: they ignore negotiated discounts, the Batch API discount, the us-only inference-geo multiplier, fast mode, and per-search or per-container server-tool charges."
+  },
+  "unknownModel": {
+    "policy": "omit",
+    "display": "n/a",
+    "note": "A model absent from this table renders as n/a and is left out of every total. Never substitute a guessed or nearest-neighbour rate."
+  },
+  "models": {
+    "claude-fable-5": {
+      "displayName": "Claude Fable 5",
+      "input": 10,
+      "output": 50,
+      "cacheRead": 1,
+      "cacheWrite5m": 12.5,
+      "cacheWrite1h": 20
+    },
+    "claude-opus-5": {
+      "displayName": "Claude Opus 5",
+      "input": 5,
+      "output": 25,
+      "cacheRead": 0.5,
+      "cacheWrite5m": 6.25,
+      "cacheWrite1h": 10
+    },
+    "claude-opus-4-8": {
+      "displayName": "Claude Opus 4.8",
+      "input": 5,
+      "output": 25,
+      "cacheRead": 0.5,
+      "cacheWrite5m": 6.25,
+      "cacheWrite1h": 10
+    },
+    "claude-sonnet-5": {
+      "displayName": "Claude Sonnet 5",
+      "input": 2,
+      "output": 10,
+      "cacheRead": 0.2,
+      "cacheWrite5m": 2.5,
+      "cacheWrite1h": 4,
+      "note": "The $2/$10 launch rate became the standard price; the increase to $3/$15 scheduled for 2026-09-01 was cancelled."
+    },
+    "claude-haiku-4-5": {
+      "displayName": "Claude Haiku 4.5",
+      "input": 1,
+      "output": 5,
+      "cacheRead": 0.1,
+      "cacheWrite5m": 1.25,
+      "cacheWrite1h": 2
+    }
+  },
+  "aliases": {
+    "claude-haiku-4-5-20251001": "claude-haiku-4-5"
+  }
+}

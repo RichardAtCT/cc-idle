@@ -1,4 +1,4 @@
-import { describe, it, expect, afterEach } from 'vitest';
+import { describe, it, expect, afterEach, vi } from 'vitest';
 import React from 'react';
 import { EventEmitter } from 'node:events';
 import { render, cleanup } from 'ink-testing-library';
@@ -23,8 +23,12 @@ class FakeClient extends EventEmitter {
   }
 }
 
-function flush(): Promise<void> {
-  return new Promise((resolve) => setImmediate(resolve));
+/**
+ * Wait until the App's effect has subscribed to the client. A message emitted
+ * before that is lost, and one tick is not always enough on a slow CI runner.
+ */
+async function subscribed(fake: FakeClient): Promise<void> {
+  await vi.waitFor(() => expect(fake.listenerCount('message')).toBeGreaterThan(0));
 }
 
 afterEach(() => {
@@ -44,7 +48,7 @@ describe('App (ink render smoke tests)', () => {
     const client = new FakeClient() as unknown as DaemonClient;
     const { lastFrame } = render(<App client={client} config={DEFAULT_CONFIG} />);
     const fake = client as unknown as FakeClient;
-    await flush(); // let the App's effect register its client listeners first
+    await subscribed(fake);
 
     const hello: ServerMessage = {
       type: 'hello',
@@ -68,19 +72,19 @@ describe('App (ink render smoke tests)', () => {
 
     fake.emit('connected');
     fake.emit('message', hello);
-    await flush();
-
-    const frame = lastFrame() ?? '';
-    expect(frame).toContain('session-');
-    expect(frame).toContain('CC_WORKING');
-    expect(frame).toContain('project');
+    await vi.waitFor(() => {
+      const frame = lastFrame() ?? '';
+      expect(frame).toContain('session-');
+      expect(frame).toContain('CC_WORKING');
+      expect(frame).toContain('project');
+    });
   });
 
   it('renders the needs-you banner when an alert is active', async () => {
     const client = new FakeClient() as unknown as DaemonClient;
     const { lastFrame } = render(<App client={client} config={DEFAULT_CONFIG} />);
     const fake = client as unknown as FakeClient;
-    await flush(); // let the App's effect register its client listeners first
+    await subscribed(fake);
 
     fake.emit('connected');
     fake.emit('message', {
@@ -97,11 +101,11 @@ describe('App (ink render smoke tests)', () => {
       sessionId: 'session-abcdefgh',
       queue: []
     } satisfies ServerMessage);
-    await flush();
-
-    const frame = lastFrame() ?? '';
-    expect(frame).toContain('NEEDS YOU');
-    expect(frame).toContain('session-');
+    await vi.waitFor(() => {
+      const frame = lastFrame() ?? '';
+      expect(frame).toContain('NEEDS YOU');
+      expect(frame).toContain('session-');
+    });
   });
 });
 
@@ -110,7 +114,7 @@ describe('App game surface', () => {
     const client = new FakeClient() as unknown as DaemonClient;
     const { lastFrame } = render(<App client={client} config={DEFAULT_CONFIG} />);
     const fake = client as unknown as FakeClient;
-    await flush();
+    await subscribed(fake);
 
     // Build a real game state by running one envelope through the engine.
     const founded = applyInput(
@@ -139,13 +143,13 @@ describe('App game surface', () => {
       sessions: []
     } satisfies ServerMessage);
     fake.emit('message', { type: 'game-state', game: founded as never } satisfies ServerMessage);
-    await flush();
-
-    const frame = lastFrame() ?? '';
-    expect(frame).toContain('FLOPS');
-    expect(frame).toContain('GEN-1');
-    expect(frame).toContain('webapp');
-    expect(frame).toContain('FRONTIER LAB');
-    expect(frame).toContain('region "webapp" founded');
+    await vi.waitFor(() => {
+      const frame = lastFrame() ?? '';
+      expect(frame).toContain('FLOPS');
+      expect(frame).toContain('GEN-1');
+      expect(frame).toContain('webapp');
+      expect(frame).toContain('FRONTIER LAB');
+      expect(frame).toContain('region "webapp" founded');
+    });
   });
 });

@@ -12,6 +12,8 @@ export interface RegionStageProps {
   count: number;
   /** Recent compute deltas for this region (store's flow ring). */
   flow: number[];
+  /** Incidents to list before collapsing the rest into a "+N more" row. */
+  incidentLimit?: number;
 }
 
 const STATUS_LABEL: Record<Region['status'], { text: string; color: string }> = {
@@ -38,8 +40,21 @@ function rackDiagram(region: Region): string {
 }
 
 /** Main stage: the focused region as a NOC dashboard (mechanics PRD §8). */
-export function RegionStage({ game, region, position, count, flow }: RegionStageProps): React.ReactElement {
+export function RegionStage({
+  game,
+  region,
+  position,
+  count,
+  flow,
+  incidentLimit = Infinity
+}: RegionStageProps): React.ReactElement {
   const status = STATUS_LABEL[region.status];
+  // Spend exactly `incidentLimit` rows: when the list has to be clipped, the
+  // last of those rows carries the "+N more" marker instead of an incident.
+  const capacity = Math.max(0, Math.min(incidentLimit, region.incidents.length));
+  const clipped = region.incidents.length > capacity;
+  const shownIncidents = region.incidents.slice(0, clipped ? Math.max(0, capacity - 1) : capacity);
+  const hiddenIncidents = region.incidents.length - shownIncidents.length;
   const multiplier = regionMultiplier(region);
   const windowUsed = region.window.outputTokens;
   const fullRate = BALANCE.compute.fullRateTokensPerWindow;
@@ -102,13 +117,18 @@ export function RegionStage({ game, region, position, count, flow }: RegionStage
         })}
       </Box>
 
-      {region.incidents.length > 0 && (
+      {capacity > 0 && (
         <Box flexDirection="column">
-          {region.incidents.map((incident) => (
-            <Text key={incident.id} color="red">
-              ⚡ {incident.title} <Text dimColor>[a] acknowledge</Text>
+          {shownIncidents.map((incident) => (
+            <Text key={incident.id} color="red" wrap="truncate-end">
+              ↯ {incident.title} <Text dimColor>[a] acknowledge</Text>
             </Text>
           ))}
+          {clipped && (
+            <Text dimColor wrap="truncate-end">
+              +{hiddenIncidents} more incident{hiddenIncidents === 1 ? '' : 's'}
+            </Text>
+          )}
         </Box>
       )}
     </Box>

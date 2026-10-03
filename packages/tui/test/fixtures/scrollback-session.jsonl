@@ -1,0 +1,11 @@
+{"v":1,"ts":"2026-08-17T10:00:00.000Z","session_id":"scrollback-fixture","event":"SessionStart","cwd":"/home/user/frontier-lab","origin":"import","payload":{"source":"import"}}
+{"v":1,"ts":"2026-08-17T10:00:10.000Z","session_id":"scrollback-fixture","event":"UserPromptSubmit","cwd":"/home/user/frontier-lab","origin":"import","payload":{"prompt":"build the thing"}}
+{"v":1,"ts":"2026-08-17T10:00:20.000Z","session_id":"scrollback-fixture","event":"PostToolUse","cwd":"/home/user/frontier-lab","origin":"import","tool":"Edit","payload":{"tool_name":"Edit"}}
+{"v":1,"ts":"2026-08-17T10:00:30.000Z","session_id":"scrollback-fixture","event":"PostToolUse","cwd":"/home/user/frontier-lab","origin":"import","tool":"Read","payload":{"tool_name":"Read"}}
+{"v":1,"ts":"2026-08-17T10:00:40.000Z","session_id":"scrollback-fixture","event":"PostToolUse","cwd":"/home/user/frontier-lab","origin":"import","tool":"Bash","payload":{"tool_name":"Bash","tool_response":{"is_error":true}}}
+{"v":1,"ts":"2026-08-17T10:02:00.000Z","session_id":"scrollback-fixture","event":"PostToolUse","cwd":"/home/user/frontier-lab","origin":"import","tool":"Bash","payload":{"tool_name":"Bash","tool_response":{"is_error":true}}}
+{"v":1,"ts":"2026-08-17T10:04:00.000Z","session_id":"scrollback-fixture","event":"PostToolUse","cwd":"/home/user/frontier-lab","origin":"import","tool":"Bash","payload":{"tool_name":"Bash","tool_response":{"is_error":true}}}
+{"v":1,"ts":"2026-08-17T10:05:00.000Z","session_id":"scrollback-fixture","event":"Stop","cwd":"/home/user/frontier-lab","origin":"import","payload":{"tokens":{"claude-opus-5":{"output_tokens":42000}}}}
+{"v":1,"ts":"2026-08-17T10:06:00.000Z","session_id":"scrollback-fixture","event":"UserPromptSubmit","cwd":"/home/user/frontier-lab","origin":"import","payload":{"prompt":"keep going"}}
+{"v":1,"ts":"2026-08-17T10:07:00.000Z","session_id":"scrollback-fixture","event":"SubagentStop","cwd":"/home/user/frontier-lab","origin":"import","payload":{"tokens":{"claude-sonnet-5":{"output_tokens":18000}}}}
+{"v":1,"ts":"2026-08-17T10:08:00.000Z","session_id":"scrollback-fixture","event":"Stop","cwd":"/home/user/frontier-lab","origin":"import","payload":{"tokens":{"claude-opus-5":{"output_tokens":36000}}}}
