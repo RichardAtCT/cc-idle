@@ -7,6 +7,8 @@ fed by real Claude Code telemetry (hook events, tool calls, token usage). The mo
 Claude Code needs you — permission prompt, question, turn complete — focus snaps back
 to the Claude Code pane with a clear "you're needed" signal.
 
+![CC Idle running as a Claude Code mod: Claude fixes a bug while the pane turns its work into FLOPS, flags the permission prompt and ships a milestone](docs/demo.gif)
+
 ## How It Works
 
 CC Idle bridges Claude Code to a terminal game through four decoupled components:
@@ -181,6 +183,14 @@ pnpm typecheck
 ```
 
 **Requirements:** Node ≥20, pnpm 10.x, tmux, jq
+
+Re-record the demo (needs [VHS](https://github.com/charmbracelet/vhs), ffmpeg and a
+logged-in `claude`; it runs one real Sonnet turn). Copy `demo/out/demo.gif` to
+`docs/demo.gif` when the take looks right:
+
+```bash
+./demo/record.sh
+```
 
 ## Status
 
