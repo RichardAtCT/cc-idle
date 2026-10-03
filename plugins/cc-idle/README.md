@@ -15,7 +15,16 @@ Requires Claude Code v2.1.287 or later.
 
 Or try it from a clone for one session: `claude --plugin-dir ./plugins/cc-idle`.
 
-To pick up new commits from `main`:
+To pick up new commits from `main` inside Claude Code, refresh the marketplace, then load the new
+version into the running session. No restart is needed.
+
+```text
+/plugin marketplace update cc-idle
+/reload-plugins
+```
+
+If the new version does not appear, type `/plugin`, open cc-idle under the installed plugins, choose
+update, then run `/reload-plugins` again. From a shell, the same update is:
 
 ```text
 claude plugin marketplace update cc-idle && claude plugin update cc-idle@cc-idle
