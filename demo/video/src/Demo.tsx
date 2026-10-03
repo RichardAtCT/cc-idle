@@ -11,7 +11,7 @@ import {
   useCurrentFrame,
   useVideoConfig,
 } from 'remotion';
-import { BODY_END, DURATION, FPS, INTRO_FRAMES, PLACED, type Camera } from './timeline';
+import { CUTS, FPS, FULL, INTRO_FRAMES, layout, type Camera, type Cut, type CutId, type Placed } from './timeline';
 
 const C = {
   bg: '#11111b',
@@ -20,7 +20,7 @@ const C = {
   dim: '#7f849c',
   orange: '#d97757',
   cyan: '#89dceb',
-  yellow: '#f9e2af',
+  magenta: '#f5c2e7',
 };
 const MONO = '"SF Mono", Menlo, Monaco, monospace';
 const SANS = '-apple-system, "SF Pro Display", "Helvetica Neue", sans-serif';
@@ -28,18 +28,17 @@ const SANS = '-apple-system, "SF Pro Display", "Helvetica Neue", sans-serif';
 // The raw take, framed: 1920x1080 shown at 1600x900.
 const WIN = { w: 1600, h: 900, left: 160, top: 40 };
 const WIN_SCALE = WIN.w / 1920;
-const FULL: Camera = { scale: 1, x: 960, y: 540 };
 const CAMERA_EASE_FRAMES = 24;
 const OUTRO_HOLD = 18; // keep the video playing while the window leaves
 
 const lerp = (a: number, b: number, t: number) => a + (b - a) * t;
 const ease = Easing.bezier(0.33, 0, 0.2, 1);
 
-function cameraAt(frame: number): Camera {
-  const i = PLACED.findIndex((p) => frame < p.start + p.frames);
-  const idx = i === -1 ? PLACED.length - 1 : i;
-  const seg = PLACED[idx];
-  const prev = idx === 0 ? FULL : PLACED[idx - 1].camera;
+function cameraAt(placed: Placed[], frame: number): Camera {
+  const i = placed.findIndex((p) => frame < p.start + p.frames);
+  const idx = i === -1 ? placed.length - 1 : i;
+  const seg = placed[idx];
+  const prev = idx === 0 ? FULL : placed[idx - 1].camera;
   const t = ease(Math.min(1, Math.max(0, (frame - seg.start) / CAMERA_EASE_FRAMES)));
   return {
     scale: lerp(prev.scale, seg.camera.scale, t),
@@ -72,12 +71,19 @@ const Background: React.FC<{ flat: boolean }> = ({ flat }) => {
   );
 };
 
-const Intro: React.FC = () => {
+// A ticker that starts with a number counts up to it; any other ticker types out.
+function tickerText(ticker: string, t: number): string {
+  const counted = /^([\d.]+)(.*)$/.exec(ticker);
+  if (counted) return `${(Number(counted[1]) * t).toFixed(1)}${counted[2]}`;
+  return ticker.slice(0, Math.round(ticker.length * t));
+}
+
+const Intro: React.FC<{ intro: Cut['intro'] }> = ({ intro }) => {
   const frame = useCurrentFrame();
   const { fps } = useVideoConfig();
   const pop = spring({ frame, fps, config: { damping: 12, mass: 0.6 } });
   const sub = spring({ frame: frame - 10, fps, config: { damping: 200 } });
-  const flops = interpolate(frame, [15, INTRO_FRAMES - 15], [0, 741.3], {
+  const t = interpolate(frame, [15, INTRO_FRAMES - 22], [0, 1], {
     extrapolateLeft: 'clamp',
     extrapolateRight: 'clamp',
     easing: Easing.out(Easing.cubic),
@@ -96,7 +102,7 @@ const Intro: React.FC = () => {
           textShadow: '0 0 60px rgba(217,119,87,0.45)',
         }}
       >
-        CC Idle
+        {intro.title}
       </div>
       <div
         style={{
@@ -108,27 +114,27 @@ const Intro: React.FC = () => {
           transform: `translateY(${(1 - sub) * 20}px)`,
         }}
       >
-        An idle game that runs on Claude Code&apos;s real work.
+        {intro.tagline}
       </div>
-      <div style={{ fontFamily: MONO, fontSize: 40, color: C.cyan, marginTop: 36, opacity: sub }}>
-        {flops.toFixed(1)} FLOPS
+      <div style={{ fontFamily: MONO, fontSize: 40, color: C.cyan, marginTop: 36, opacity: sub, minHeight: 48 }}>
+        {tickerText(intro.ticker, t)}
       </div>
     </AbsoluteFill>
   );
 };
 
-const Window: React.FC = () => {
+const Window: React.FC<{ take: string; placed: Placed[]; bodyEnd: number }> = ({ take, placed, bodyEnd }) => {
   const frame = useCurrentFrame();
   const { fps } = useVideoConfig();
   const enter = spring({ frame: frame - (INTRO_FRAMES - 6), fps, config: { damping: 18 } });
-  const leave = interpolate(frame, [BODY_END, BODY_END + OUTRO_HOLD], [1, 0], {
+  const leave = interpolate(frame, [bodyEnd, bodyEnd + OUTRO_HOLD], [1, 0], {
     extrapolateLeft: 'clamp',
     extrapolateRight: 'clamp',
   });
   const opacity = Math.min(enter, leave);
   if (opacity <= 0) return null;
   const scale = (0.92 + 0.08 * enter) * (0.94 + 0.06 * leave);
-  const last = PLACED.length - 1;
+  const last = placed.length - 1;
   return (
     <div
       style={{
@@ -150,10 +156,10 @@ const Window: React.FC = () => {
           width: 1920,
           height: 1080,
           transformOrigin: '0 0',
-          transform: `scale(${WIN_SCALE}) ${cameraTransform(cameraAt(frame))}`,
+          transform: `scale(${WIN_SCALE}) ${cameraTransform(cameraAt(placed, frame))}`,
         }}
       >
-        {PLACED.map((p, i) => (
+        {placed.map((p, i) => (
           <Sequence
             key={p.from}
             from={p.start}
@@ -161,7 +167,7 @@ const Window: React.FC = () => {
             layout="none"
           >
             <OffthreadVideo
-              src={staticFile('demo.mp4')}
+              src={staticFile(take)}
               trimBefore={Math.round(p.from * FPS)}
               playbackRate={p.rate}
               muted
@@ -175,12 +181,14 @@ const Window: React.FC = () => {
 };
 
 // Neighbouring segments with the same caption share one card.
-const CAPTIONS = PLACED.reduce<{ text: string; start: number; end: number }[]>((acc, p) => {
-  const prev = acc[acc.length - 1];
-  if (prev && prev.text === p.caption) prev.end = p.start + p.frames;
-  else acc.push({ text: p.caption, start: p.start, end: p.start + p.frames });
-  return acc;
-}, []);
+function captions(placed: Placed[]): { text: string; start: number; end: number }[] {
+  return placed.reduce<{ text: string; start: number; end: number }[]>((acc, p) => {
+    const prev = acc[acc.length - 1];
+    if (prev && prev.text === p.caption) prev.end = p.start + p.frames;
+    else acc.push({ text: p.caption, start: p.start, end: p.start + p.frames });
+    return acc;
+  }, []);
+}
 
 const Caption: React.FC<{ text: string; frames: number }> = ({ text, frames }) => {
   const frame = useCurrentFrame();
@@ -209,7 +217,7 @@ const Caption: React.FC<{ text: string; frames: number }> = ({ text, frames }) =
   );
 };
 
-const Outro: React.FC = () => {
+const Outro: React.FC<{ outro: Cut['outro'] }> = ({ outro }) => {
   const frame = useCurrentFrame();
   const { fps } = useVideoConfig();
   const at = (delay: number) => spring({ frame: frame - delay, fps, config: { damping: 18 } });
@@ -219,7 +227,8 @@ const Outro: React.FC = () => {
   });
   return (
     <AbsoluteFill style={{ justifyContent: 'center', alignItems: 'center', fontFamily: SANS }}>
-      <div style={{ fontSize: 84, fontWeight: 700, color: C.text, ...line(4) }}>Play while Claude works.</div>
+      <div style={{ fontSize: 84, fontWeight: 700, color: C.text, ...line(4) }}>{outro.headline}</div>
+      {outro.note && <div style={{ fontSize: 36, color: C.dim, marginTop: 18, ...line(10) }}>{outro.note}</div>}
       <div
         style={{
           marginTop: 48,
@@ -231,7 +240,7 @@ const Outro: React.FC = () => {
           fontSize: 38,
           lineHeight: 1.6,
           color: C.text,
-          ...line(14),
+          ...line(16),
         }}
       >
         <div>
@@ -241,19 +250,21 @@ const Outro: React.FC = () => {
           <span style={{ color: C.orange }}>&gt;</span> /plugin install cc-idle@cc-idle
         </div>
       </div>
-      <div style={{ marginTop: 44, fontFamily: MONO, fontSize: 36, color: C.cyan, ...line(26) }}>
+      <div style={{ marginTop: 44, fontFamily: MONO, fontSize: 36, color: C.cyan, ...line(28) }}>
         github.com/RichardAtCT/cc-idle
       </div>
     </AbsoluteFill>
   );
 };
 
-export type DemoProps = { forGif: boolean };
+export type DemoProps = { cut: CutId; forGif: boolean };
 
-export const Demo: React.FC<DemoProps> = ({ forGif }) => {
+export const Demo: React.FC<DemoProps> = ({ cut: id, forGif }) => {
   const frame = useCurrentFrame();
+  const cut: Cut = CUTS[id];
+  const { placed, bodyEnd, duration } = layout(cut);
   const music = (f: number) =>
-    interpolate(f, [0, 15, DURATION - 45, DURATION], [0, 0.8, 0.8, 0], {
+    interpolate(f, [0, 15, duration - 45, duration], [0, 0.8, 0.8, 0], {
       extrapolateLeft: 'clamp',
       extrapolateRight: 'clamp',
     });
@@ -261,15 +272,15 @@ export const Demo: React.FC<DemoProps> = ({ forGif }) => {
     <AbsoluteFill>
       <Background flat={forGif} />
       {!forGif && <Audio src={staticFile('music.wav')} volume={music} />}
-      {frame < INTRO_FRAMES && <Intro />}
-      <Window />
-      {CAPTIONS.map((c) => (
+      {frame < INTRO_FRAMES && <Intro intro={cut.intro} />}
+      <Window take={cut.take} placed={placed} bodyEnd={bodyEnd} />
+      {captions(placed).map((c) => (
         <Sequence key={c.start} from={c.start} durationInFrames={c.end - c.start}>
           <Caption text={c.text} frames={c.end - c.start} />
         </Sequence>
       ))}
-      <Sequence from={BODY_END + 6}>
-        <Outro />
+      <Sequence from={bodyEnd + 6}>
+        <Outro outro={cut.outro} />
       </Sequence>
     </AbsoluteFill>
   );

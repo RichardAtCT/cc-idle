@@ -1,9 +1,11 @@
 #!/usr/bin/env bash
-# Records the cc-idle demo: demo/out/demo.mp4, demo.gif and stills.
+# Records a cc-idle demo take: ./record.sh [demo|board] writes out/<name>.mp4,
+# a quick GIF and stills.
 # Starts from a fresh game save; your real save is restored on exit.
 set -euo pipefail
 
 HERE="$(cd "$(dirname "$0")" && pwd)"
+TAKE="${1:-demo}"
 OUT="$HERE/out"
 SHOP="$HOME/shop"
 STORE="$HOME/.claude/plugins/store"
@@ -56,8 +58,8 @@ JS
 printf '.ccidle-demo\n' > .gitignore
 git init -q && git add -A && git commit -qm "shop" && cd "$HERE"
 
-PLUGIN_DIR="$PLUGIN_DIR" vhs "$HERE/demo.tape"
+PLUGIN_DIR="$PLUGIN_DIR" vhs "$HERE/$TAKE.tape"
 
 # README GIF: the same take at 1.4x speed, 1200 px wide.
-ffmpeg -y -loglevel error -i "$OUT/demo.mp4" -filter_complex "setpts=PTS/1.4,fps=12,scale=1200:-1:flags=lanczos,split[a][b];[a]palettegen=stats_mode=diff[p];[b][p]paletteuse=dither=bayer:bayer_scale=4" "$OUT/demo.gif"
-echo "Wrote $OUT/demo.mp4 and $OUT/demo.gif"
+ffmpeg -y -loglevel error -i "$OUT/$TAKE.mp4" -filter_complex "setpts=PTS/1.4,fps=12,scale=1200:-1:flags=lanczos,split[a][b];[a]palettegen=stats_mode=diff[p];[b][p]paletteuse=dither=bayer:bayer_scale=4" "$OUT/$TAKE.gif"
+echo "Wrote $OUT/$TAKE.mp4 and $OUT/$TAKE.gif"

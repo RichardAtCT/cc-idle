@@ -184,15 +184,16 @@ pnpm typecheck
 
 **Requirements:** Node ≥20, pnpm 10.x, tmux, jq
 
-Re-record the demo (needs [VHS](https://github.com/charmbracelet/vhs), ffmpeg, Python with
-numpy and a logged-in `claude`; it runs one real Sonnet turn). `record.sh` writes the raw
-take. `render.sh` cuts it in [Remotion](https://www.remotion.dev) (`demo/video`), adds an
-original chiptune (`demo/music/chiptune.py`), and writes `demo/out/demo-polished.mp4` and
-`.gif`. After a new take, check the beat times in `demo/video/src/timeline.ts`, then copy
-the GIF to `docs/demo.gif`:
+Re-record a demo (needs [VHS](https://github.com/charmbracelet/vhs), ffmpeg, Python with
+numpy and a logged-in `claude`; it runs real Sonnet and Haiku turns). There are two cuts:
+`demo` (the whole loop) and `board` (the Haiku board member). `record.sh <cut>` writes the
+raw take. `render.sh <cut>` cuts it in [Remotion](https://www.remotion.dev) (`demo/video`),
+adds an original chiptune (`demo/music/chiptune.py`), and writes
+`demo/out/<cut>-polished.mp4` and `.gif`. After a new take, check the beat times in
+`demo/video/src/timeline.ts`, then copy the GIF to `docs/<cut>.gif`:
 
 ```bash
-./demo/record.sh && ./demo/render.sh
+./demo/record.sh board && ./demo/render.sh board
 ```
 
 ## Status

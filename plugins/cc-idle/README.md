@@ -67,6 +67,8 @@ lowercase letter or digit, and Tab and the arrow keys stay Claude Code's.
 A board member of your lab lives in the pane. It is Haiku, run through your own Claude Code
 session, so each line it says is one small Haiku call on your account.
 
+![The board explains an incident unasked, then answers a rules question and a cheeky one](../../docs/board.gif)
+
 - Press `c` to open the board, type a short line (80 characters at most) and press Enter. It
   answers in one line. The text field takes every key, so Enter on an empty line goes back to
   the game. Esc hands the keyboard to the prompt, as on every screen.
