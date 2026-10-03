@@ -5346,7 +5346,7 @@ function register(on) {
         key: `feed-${i}`,
         color: TONE_COLOR[NARRATION_TONE[entry.kind]],
         dimColor: NARRATION_TONE[entry.kind] === "dim",
-        wrap: "truncate"
+        wrap: "wrap"
       },
       entry.text
     ));
