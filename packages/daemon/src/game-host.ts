@@ -88,11 +88,14 @@ export class GameHost {
     this.apply({ kind: 'telemetry' as const, envelope });
   }
 
-  /** The file was truncated/rotated: its event ordinals restart from zero. */
+  /**
+   * The file was truncated/rotated: its event ordinals restart from zero.
+   * Saved at once: a stale cursor left by a crash would skip that many new events.
+   */
   handleFileReset(filePath: string): void {
     this.seen.set(filePath, 0);
     this.save.cursors[filePath] = 0;
-    this.dirty = true;
+    this.persist(true);
   }
 
   handleStateChange(sessionId: string, state: SessionState): void {

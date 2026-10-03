@@ -34,7 +34,9 @@ interface RawTranscriptLine {
  */
 export function parseUsageDeltas(
   newContent: string,
-  seen: Set<string> = new Set()
+  seen: Set<string> = new Set(),
+  /** Receives each key this call adds to `seen`, in order. */
+  added: string[] = []
 ): Record<string, TokenUsagePayload['byModel'][string]> {
   const byModel: Record<string, TokenUsagePayload['byModel'][string]> = {};
   for (const rawLine of newContent.split('\n')) {
@@ -53,6 +55,7 @@ export function parseUsageDeltas(
     if (typeof key === 'string' && key !== '') {
       if (seen.has(key)) continue;
       seen.add(key);
+      added.push(key);
     }
 
     const delta = {
@@ -88,6 +91,10 @@ interface TrackedTranscript {
   offset: number;
   /** Usage keys already counted; see parseUsageDeltas. */
   seen: Set<string>;
+  /** Key of the last response counted; written into TokenUsage so a restart can reseed `seen`. */
+  lastKey?: string;
+  /** A replayed TokenUsage predates offsets, so its usage was counted up to an unknown point. */
+  countedWithoutOffset: boolean;
 }
 
 /**
@@ -104,7 +111,43 @@ export class TranscriptReader {
   setTranscriptPath(sessionId: string, transcriptPath: string): void {
     const existing = this.tracked.get(sessionId);
     if (existing && existing.path === transcriptPath) return;
-    this.tracked.set(sessionId, { path: transcriptPath, offset: 0, seen: new Set() });
+    this.tracked.set(sessionId, { path: transcriptPath, offset: 0, seen: new Set(), countedWithoutOffset: false });
+  }
+
+  /**
+   * Startup replay: a TokenUsage this reader wrote in an earlier run says how
+   * far into the transcript it had counted. Continue from there, so usage
+   * written while the daemon was down is counted once and nothing twice.
+   */
+  resume(sessionId: string, payload: TokenUsagePayload): void {
+    const tracked = this.tracked.get(sessionId);
+    if (!tracked) return;
+    if (payload.transcriptOffset === undefined) {
+      tracked.countedWithoutOffset = true;
+      return;
+    }
+    if (payload.transcriptPath !== tracked.path) return;
+    tracked.offset = payload.transcriptOffset;
+    tracked.seen = new Set(payload.lastKey ? [payload.lastKey] : []);
+    tracked.lastKey = payload.lastKey;
+    tracked.countedWithoutOffset = false;
+  }
+
+  /**
+   * End of startup replay. A session whose last TokenUsage was written before
+   * TokenUsage carried offsets has had its usage counted up to some unknown
+   * point, so skip to the transcript's current end rather than count it again.
+   */
+  finishReplay(): void {
+    for (const tracked of this.tracked.values()) {
+      if (!tracked.countedWithoutOffset) continue;
+      try {
+        tracked.offset = fs.statSync(tracked.path).size;
+      } catch {
+        // missing transcript: poll() tolerates it
+      }
+      tracked.countedWithoutOffset = false;
+    }
   }
 
   hasTranscript(sessionId: string): boolean {
@@ -165,24 +208,35 @@ export class TranscriptReader {
     const lastNewline = content.lastIndexOf('\n');
     const usable = lastNewline === -1 ? '' : content.slice(0, lastNewline + 1);
     if (usable === '') return null;
-    tracked.offset += Buffer.byteLength(usable, 'utf8');
+    const nextOffset = tracked.offset + Buffer.byteLength(usable, 'utf8');
 
-    const byModel = parseUsageDeltas(usable, tracked.seen);
-    if (Object.keys(byModel).length === 0) return null;
+    const added: string[] = [];
+    const byModel = parseUsageDeltas(usable, tracked.seen, added);
+    if (Object.keys(byModel).length === 0) {
+      tracked.offset = nextOffset;
+      return null;
+    }
+    const lastKey = added.at(-1) ?? tracked.lastKey;
 
+    const payload: TokenUsagePayload = { byModel, transcriptPath: tracked.path, transcriptOffset: nextOffset };
+    if (lastKey !== undefined) payload.lastKey = lastKey;
     const envelope: EventEnvelope = {
       v: 1,
       ts: nowIso,
       session_id: sessionId,
       event: 'TokenUsage',
-      payload: { byModel }
+      payload
     };
 
     try {
       fs.appendFileSync(eventFilePath, serializeEvent(envelope));
     } catch {
+      // Not recorded: leave offset and keys so the next poll counts this usage.
+      for (const key of added) tracked.seen.delete(key);
       return null;
     }
+    tracked.offset = nextOffset;
+    tracked.lastKey = lastKey;
     return envelope;
   }
 

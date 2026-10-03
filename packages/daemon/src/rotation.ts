@@ -10,15 +10,17 @@ export interface RotationLogger {
 }
 
 /**
- * Compacts live event files over config.log.maxFileMB into
- * {session}.archive.jsonl and truncates the live file, then deletes archive
- * files older than config.log.retentionDays. Coordinates with the watcher's
- * byte offsets so a rotation doesn't cause it to miss or double-read lines.
+ * Moves live event files over config.log.maxFileMB into
+ * {session}.archive.jsonl, then deletes archive files older than
+ * config.log.retentionDays. The live file is renamed aside rather than
+ * copied and truncated: a hook that appends mid-rotation then writes to a
+ * fresh live file instead of into bytes about to be cut. The watcher drains
+ * what it has not read yet from the renamed file before its offset restarts.
  */
 export class Rotator {
   constructor(
     private readonly dir: string,
-    private readonly watcher: Pick<Watcher, 'resetOffset'>,
+    private readonly watcher: Pick<Watcher, 'drainRotated'>,
     private readonly logger?: RotationLogger,
     /** Extra consumers (e.g. the game host) that track per-file positions. */
     private readonly onRotated?: (filePath: string) => void
@@ -57,12 +59,20 @@ export class Rotator {
   }
 
   private rotateOne(filePath: string, archivePath: string): void {
+    // Not *.jsonl, so the watcher ignores it.
+    const rotatingPath = `${filePath}.rotating`;
     try {
-      const content = fs.readFileSync(filePath);
-      fs.appendFileSync(archivePath, content);
-      fs.truncateSync(filePath, 0);
-      this.watcher.resetOffset(filePath, 0);
+      // Left by a crash mid-rotation. Archive it now: the rename below would overwrite it.
+      if (fs.existsSync(rotatingPath)) {
+        fs.appendFileSync(archivePath, fs.readFileSync(rotatingPath));
+        fs.unlinkSync(rotatingPath);
+      }
+      fs.renameSync(filePath, rotatingPath);
+      this.watcher.drainRotated(filePath, rotatingPath);
       this.onRotated?.(filePath);
+      const content = fs.readFileSync(rotatingPath);
+      fs.appendFileSync(archivePath, content);
+      fs.unlinkSync(rotatingPath);
       this.logger?.info(`rotated ${filePath} -> ${archivePath} (${content.byteLength} bytes)`);
     } catch (error) {
       this.logger?.warn(`rotation failed for ${filePath}: ${(error as Error).message}`);
