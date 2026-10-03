@@ -129,7 +129,7 @@ describe('cc-idle economy', () => {
     await $.tool.call({ tool: 'Bash', tool_use_id: 'tu1', command: 'false' } as never);
 
     const ui = await $.ui.mount({ ...PANE, surface: 'terminal' });
-    expect(await ui.find({ text: /⚡/ })).toBeDefined();
+    expect(await ui.find({ text: /↯/ })).toBeDefined();
     await ui.press({ key: 'act-a' });
     expect(await ui.find({ text: /post-mortem filed/ })).toBeDefined();
     await ui.unmount();
