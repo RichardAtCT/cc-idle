@@ -62,6 +62,11 @@ export class Rotator {
     // Not *.jsonl, so the watcher ignores it.
     const rotatingPath = `${filePath}.rotating`;
     try {
+      // Left by a crash mid-rotation. Archive it now: the rename below would overwrite it.
+      if (fs.existsSync(rotatingPath)) {
+        fs.appendFileSync(archivePath, fs.readFileSync(rotatingPath));
+        fs.unlinkSync(rotatingPath);
+      }
       fs.renameSync(filePath, rotatingPath);
       this.watcher.drainRotated(filePath, rotatingPath);
       this.onRotated?.(filePath);

@@ -69,6 +69,18 @@ describe('Rotator', () => {
     expect(watcher.drains).toEqual([]);
   });
 
+  it('archives a .rotating file left by a crash before rotating again', () => {
+    const dir = mkTmpDir();
+    cleanups.push(() => fs.rmSync(dir, { recursive: true, force: true }));
+    const live = path.join(dir, 'sess-1.jsonl');
+    const archive = path.join(dir, 'sess-1.archive.jsonl');
+    fs.writeFileSync(`${live}.rotating`, line(1));
+    fs.writeFileSync(live, line(2));
+
+    new Rotator(dir, fakeWatcher()).checkAndRotate(0, 30);
+    expect(fs.readFileSync(archive, 'utf8')).toBe(line(1) + line(2));
+  });
+
   it('emits lines the watcher had not read yet, once each, and keeps tailing the new live file', async () => {
     const dir = mkTmpDir();
     cleanups.push(() => fs.rmSync(dir, { recursive: true, force: true }));

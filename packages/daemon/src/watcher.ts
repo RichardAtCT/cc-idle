@@ -4,6 +4,9 @@ import path from 'node:path';
 import chokidar, { type FSWatcher } from 'chokidar';
 import { parseEventLine, type EventEnvelope } from '@ccidle/shared';
 
+/** Delay before the one re-read of a live path after rotation; see drainRotated. */
+const ROTATION_RECHECK_MS = 250;
+
 /** True for live session event files ("{sessionId}.jsonl"), false for archives/others. */
 export function isLiveEventFile(filePath: string): boolean {
   return filePath.endsWith('.jsonl') && !filePath.endsWith('.archive.jsonl');
@@ -132,6 +135,14 @@ export class Watcher extends EventEmitter<WatcherEvents> {
     const result = readNewLines(rotatedPath, this.offsets.get(livePath) ?? 0);
     this.offsets.set(livePath, 0);
     this.emitLines(result.lines, livePath);
+    // chokidar throttles each file's events and re-watches on an inode change.
+    // A hook that creates the new live file within milliseconds of the rename
+    // can have that write dropped, which would hold its event until the next
+    // write. One re-read shortly after closes that gap; consume() is idempotent.
+    const recheck = setTimeout(() => {
+      if (this.fsWatcher) this.consume(livePath);
+    }, ROTATION_RECHECK_MS);
+    recheck.unref?.();
   }
 
   /** Force a re-read of one file right now (e.g. after this daemon appends a synthetic event itself). */
