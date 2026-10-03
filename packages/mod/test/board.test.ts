@@ -11,7 +11,11 @@ import {
   chatPrompt,
   cleanReply,
   clipInput,
+  BOARD_SYSTEM,
+  GAME_RULES,
+  conceptPrompt,
   isReactable,
+  nextConcept,
   reactionPrompt
 } from '../src/board.js';
 
@@ -81,3 +85,45 @@ describe('reactions', () => {
     expect(lines[0]?.text).toBe('3');
   });
 });
+
+describe('help', () => {
+  it('gives the board the real rules', () => {
+    expect(GAME_RULES).toContain('first 40K output tokens in a rolling hour');
+    expect(GAME_RULES).toContain('Quantization');
+    expect(BOARD_SYSTEM).toContain(GAME_RULES);
+  });
+
+  it('tells the board when a region is past its full rate', () => {
+    const g = withRegion();
+    g.regions['/p/a']!.window.outputTokens = 50_000;
+    expect(boardContext(g)).toContain('diminishing returns active');
+  });
+
+  it('finds the first mechanic met but not yet explained', () => {
+    const g = withRegion();
+    expect(nextConcept(g, [])).toBeNull();
+    g.regions['/p/a']!.incidents.push({ id: 'i1', title: 'pager', openedAt: '2026-10-02T10:00:00Z' } as never);
+    g.regions['/p/a']!.window.outputTokens = 50_000;
+    expect(nextConcept(g, [])?.id).toBe('incident');
+    expect(nextConcept(g, ['incident'])?.id).toBe('diminishing');
+    expect(nextConcept(g, ['incident', 'diminishing'])).toBeNull();
+    expect(conceptPrompt(g, nextConcept(g, [])!)).toContain('first time: incidents');
+  });
+});
+
+function withRegion() {
+  const g = game();
+  g.regions['/p/a'] = {
+    id: '/p/a',
+    name: 'a',
+    foundedAt: '2026-10-01T00:00:00Z',
+    status: 'idle',
+    infrastructure: {},
+    window: { startMs: 0, outputTokens: 0 },
+    turnAccrual: 0,
+    incidents: [],
+    lastIncidentAtMs: 0,
+    totals: { compute: 0, engineering: 0, research: 0, outputTokens: 0, incidents: 0 }
+  };
+  return g;
+}

@@ -61,9 +61,13 @@ session, so each line it says is one small Haiku call on your account.
 - Press `c` to open the board, type a short line (80 characters at most) and press Enter. It
   answers in one line. The text field takes every key, so Enter on an empty line goes back to
   the game. Esc hands the keyboard to the prompt, as on every screen.
+- It knows the rules, so it doubles as help: ask "what does diminishing returns mean?" and it
+  answers from the game's real balance numbers.
+- The first time you meet a mechanic (an incident, diminishing returns, a second region, a
+  shippable model, Breakthroughs to spend), it explains it once, unasked. It never repeats one.
 - It also reacts by itself to big moments: a region founded, a generation shipped, a
   breakthrough, an incident. It does so at most once a minute, and only while the pane is in view.
-  Its last word shows under the hint on the main screen.
+  Unasked lines share that limit. Its last word shows under the hint on the main screen.
 - The chat stays in this session. It is not part of the shared save.
 
 ## How it works

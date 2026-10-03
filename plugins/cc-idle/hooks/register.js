@@ -5131,26 +5131,48 @@ var HELP_LINES = [
 
 // src/board.ts
 var BOARD_MODEL = "haiku";
-var BOARD_MAX_TOKENS = 80;
+var BOARD_MAX_TOKENS = 120;
 var BOARD_TIMEOUT_MS = 8e3;
 var REACT_COOLDOWN_MS = 6e4;
 var MAX_INPUT_CHARS = 80;
-var MAX_REPLY_CHARS = 140;
+var MAX_REPLY_CHARS = 300;
 var BOARD_LINES = 8;
+var C = BALANCE.compute;
+var L = BALANCE.lab;
+var GAME_RULES = [
+  "Claude Code does real work; the game turns it into resources.",
+  `Output tokens become FLOPS (Compute). Edit/Write/Bash calls give ${BALANCE.engineering.perToolCall} engineering each. Read/Search/Fetch calls give ${BALANCE.research.perToolCall} data each.`,
+  `A finished turn adds a ${C.turnCompletionBonus * 100}% completion bonus and ${BALANCE.reputation.perStop} reputation. A subagent is a training run: it uses ${L.trainingDataCost} data and adds model progress.`,
+  `Diminishing returns: per region, the first ${formatAmount(C.fullRateTokensPerWindow)} output tokens in a rolling hour convert at full rate; after that each token is worth less (log scale). Burning more tokens is never the best play.`,
+  `A failed tool call is an incident. Each open incident cuts that region's rate by ${BALANCE.incidents.debuffPerIncident * 100}% (never below half). Press a to acknowledge it: the post-mortem pays ${BALANCE.engineering.postMortem} engineering.`,
+  `Infrastructure, bought with FLOPS per region, raises the region multiplier: ${INFRA_TIERS.map((t) => `${t.name} from ${formatAmount(t.baseCost)}${t.requiresPrevious ? ` (needs ${t.requiresPrevious} ${INFRA_TIERS[INFRA_TIERS.indexOf(t) - 1]?.name}s each)` : ""}`).join(", ")}. Each unit costs more than the last.`,
+  `Researchers cost engineering (first ${L.hireBaseCost}) and speed model progress by ${L.progressPerResearcher * 100}% each. Reputation caps hires: one slot per ${L.reputationPerHireSlot} reputation. An experiment costs ${L.experimentDataCost} data and ${L.experimentEngineeringCost} engineering for ${L.experimentProgress} progress.`,
+  `Shipping a generation (needs ${generationThreshold(1)} progress for Gen-1, x${BALANCE.generations.progressGrowth} each after) resets infrastructure and lab staff but banks ${BALANCE.generations.breakthroughsPerShip}+ Breakthroughs, which last forever.`,
+  `Breakthroughs buy: ${BREAKTHROUGH_NODES.map((n) => `${n.name} (${n.description})`).join("; ")}.`,
+  "Keys: g r d buy, a acknowledge, n next region, h hire, e experiment, s ship, v breakthroughs, i help, c the board."
+].join("\n");
 var BOARD_SYSTEM = [
   "You are a board member of a small frontier AI lab in an idle game.",
   "You are dry, slightly anxious about burn rate, and secretly proud of the team.",
-  "Answer in ONE short line of at most 20 words. Stay in character.",
+  "Answer in ONE line. Banter: at most 20 words.",
+  "A question about how the game works: lead with the plain answer from the rules, at most 40 words, then stop.",
   "No markdown, no quotes, no emoji, no lists.",
-  "Use the lab snapshot for facts; never invent numbers."
+  "Use the rules and the lab snapshot for facts; never invent numbers or mechanics.",
+  `
+
+Game rules:
+${GAME_RULES}`
 ].join(" ");
 function boardContext(game) {
   const regions = Object.values(game.regions);
   const incidents = regions.reduce((n, r) => n + r.incidents.length, 0);
   const recent = game.log.slice(-3).map((entry) => `- ${entry.text}`);
+  const lab = labView(game, 1);
   return [
     `Generation ${game.generation}. ${resourceLine(game)}.`,
     `${regions.length} region(s), ${incidents} open incident(s).`,
+    ...regions.map((r) => `Region ${r.name}: ${regionLines(r).join(" \xB7 ")}.`),
+    `Lab: ${lab.researchers}, model progress ${lab.progress}.`,
     recent.length > 0 ? `Recent:
 ${recent.join("\n")}` : "Nothing has happened yet."
   ].join("\n");
@@ -5182,6 +5204,42 @@ function canReact(nowMs, lastMs) {
 }
 function appendLine(lines, line) {
   return [...lines, line].slice(-BOARD_LINES);
+}
+var CONCEPTS = [
+  {
+    id: "incident",
+    topic: "incidents: what they cost and how to clear one",
+    isMet: (g) => Object.values(g.regions).some((r) => r.incidents.length > 0)
+  },
+  {
+    id: "diminishing",
+    topic: "diminishing returns: why tokens now earn less, and what to do instead",
+    isMet: (g) => Object.values(g.regions).some((r) => r.window.outputTokens > C.fullRateTokensPerWindow)
+  },
+  {
+    id: "second-region",
+    topic: "regions: each project is a region with its own infrastructure and rate",
+    isMet: (g) => Object.keys(g.regions).length >= 2
+  },
+  {
+    id: "shippable",
+    topic: "shipping a generation: what resets and what Breakthroughs are for",
+    isMet: (g) => labView(g, 1).isShippable
+  },
+  {
+    id: "breakthroughs",
+    topic: "spending Breakthroughs: the tree on v, and which node to pick first",
+    isMet: (g) => g.resources.breakthroughs > 0
+  }
+];
+function nextConcept(game, explained2) {
+  const found = CONCEPTS.find((c) => !explained2.includes(c.id) && c.isMet(game));
+  return found ? { id: found.id, topic: found.topic } : null;
+}
+function conceptPrompt(game, concept) {
+  return `${boardContext(game)}
+
+The founder just met this for the first time: ${concept.topic}. Explain it briefly, in character, with one concrete tip.`;
 }
 
 // src/telemetry.ts
@@ -5235,6 +5293,7 @@ var FLUSH_DELAY_MS = 1e3;
 var REFRESH_EVERY_MS = 5e3;
 var FEED_LINES = 6;
 var ONBOARDED_KEY = "onboarded";
+var EXPLAINED_KEY = "boardExplained";
 var rev = atom({ plugin: "cc-idle", key: "rev" }, 0);
 var view = atom({ plugin: "cc-idle", key: "view" }, "main");
 var regionIndex = atom({ plugin: "cc-idle", key: "region" }, 0);
@@ -5249,6 +5308,7 @@ var boardLines = [];
 var boardDraft = "";
 var boardStop = null;
 var lastReactMs = null;
+var explained = [];
 var BOARD_UNAVAILABLE = {
   who: "system",
   text: "The board is unavailable right now."
@@ -5280,8 +5340,7 @@ async function record($, input) {
       if (effect.kind === "ceremony" || effect.kind === "bad") $.ui.toast(effect.text);
     }
   }
-  const big = effects.find(isReactable);
-  if (big) void react($, big);
+  void speakUp($, effects.find(isReactable));
   scheduleFlush($);
 }
 async function bumpBoard($) {
@@ -5316,19 +5375,30 @@ async function askBoard($, prompt) {
   if (boardStop === stop) boardStop = null;
   if (line && !stop.signal.aborted) boardLines = appendLine(boardLines, line);
   await bumpBoard($);
+  return line?.who === "board";
 }
 function stopBoard() {
   boardStop?.abort();
   boardStop = null;
 }
-async function react($, effect) {
+async function speakUp($, effect) {
   if (!sync || boardStop) return;
+  const concept = nextConcept(sync.state, explained);
+  if (!concept && !effect) return;
+  const nowMs = await $.clock.now();
+  if (!canReact(nowMs, lastReactMs)) return;
   const panes = await $.ui.panes();
   if (!panes.some((pane) => pane.id === PANE && pane.isShown && pane.isPlaced)) return;
-  const nowMs = await $.clock.now();
   if (boardStop || !canReact(nowMs, lastReactMs)) return;
   lastReactMs = nowMs;
-  await askBoard($, reactionPrompt(sync.state, effect));
+  if (!concept) {
+    await askBoard($, reactionPrompt(sync.state, effect));
+    return;
+  }
+  if (await askBoard($, conceptPrompt(sync.state, concept))) {
+    explained = [...explained, concept.id];
+    await $.store.set(EXPLAINED_KEY, explained);
+  }
 }
 function telemetry($, make) {
   if (!ref) return Promise.resolve();
@@ -5379,6 +5449,8 @@ function register(on) {
       });
     });
     onboarded = await $.store.get(ONBOARDED_KEY) === true;
+    const saidBefore = await $.store.get(EXPLAINED_KEY);
+    explained = Array.isArray(saidBefore) ? saidBefore.filter((id) => typeof id === "string") : [];
     if (!onboarded) await update($, view, () => "help");
     void $.ui.open({ id: PANE, title: "cc-idle" }).then((opened) => {
       if (!opened.isPlaced && !onboarded) $.ui.toast("cc-idle is installed: type /idle to play");

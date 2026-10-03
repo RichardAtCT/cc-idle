@@ -278,23 +278,45 @@ describe('the board member', () => {
 
   test('big moments get a reaction at most once a minute', async ($, on) => {
     const { clock, seen, where } = engine(on);
-    const reactions = () => seen.asked.filter((prompt) => prompt.includes('This just happened'));
+    const unasked = () => seen.asked.filter((prompt) => !prompt.includes('says to you'));
     await $.session.start(STARTED);
     // Founding the region is a ceremony: the board reacts.
     await $.turn.start({ text: 'run the tests', turnId: 't1' });
     await clock.advance(1_000);
-    expect(reactions()).toHaveLength(1);
-    expect(reactions()[0]).toContain('founded');
+    expect(unasked()).toHaveLength(1);
+    expect(unasked()[0]).toContain('founded');
     // An incident a second later falls inside the cooldown.
     await $.tool.call({ tool: 'Bash', tool_use_id: 'tu1', command: 'false' } as never);
     await clock.advance(1_000);
-    expect(reactions()).toHaveLength(1);
-    // A minute on, a second region's founding earns one more.
+    expect(unasked()).toHaveLength(1);
+    // A minute on, the next big moment speaks, and the unexplained incident comes first.
     await clock.advance(60_000);
     where.cwd = '/work/other';
     await $.turn.start({ text: 'and here', turnId: 't2' });
     await clock.advance(1_000);
-    expect(reactions()).toHaveLength(2);
+    expect(unasked()).toHaveLength(2);
+    expect(unasked()[1]).toContain('first time: incidents');
+  });
+
+  test('the board explains a mechanic once, ever', async ($, on) => {
+    const { clock, seen, kv } = engine(on);
+    await $.session.start(STARTED);
+    await $.turn.start({ text: 'run the tests', turnId: 't1' });
+    await clock.advance(61_000);
+    await $.tool.call({ tool: 'Bash', tool_use_id: 'tu1', command: 'false' } as never);
+    await clock.advance(1_000);
+    expect(seen.asked.filter((prompt) => prompt.includes('first time: incidents'))).toHaveLength(1);
+    expect(kv.get('boardExplained')).toEqual(['incident']);
+  });
+
+  test('a mechanic explained in an earlier session stays explained', async ($, on) => {
+    const { clock, seen } = engine(on, { boardExplained: ['incident'] });
+    await $.session.start(STARTED);
+    await $.turn.start({ text: 'run the tests', turnId: 't1' });
+    await clock.advance(61_000);
+    await $.tool.call({ tool: 'Bash', tool_use_id: 'tu1', command: 'false' } as never);
+    await clock.advance(1_000);
+    expect(seen.asked.some((prompt) => prompt.includes('first time'))).toBe(false);
   });
 
   test('no reaction while the pane is not in view', async ($, on) => {

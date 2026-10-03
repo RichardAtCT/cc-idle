@@ -15,7 +15,9 @@ import {
   chatPrompt,
   cleanReply,
   clipInput,
+  conceptPrompt,
   isReactable,
+  nextConcept,
   reactionPrompt,
   type BoardLine
 } from './board.js';
@@ -57,6 +59,8 @@ const REFRESH_EVERY_MS = 5_000;
 const FEED_LINES = 6;
 /** Set once the player dismisses the welcome. Kept apart from the save, whose schema is the engine's. */
 const ONBOARDED_KEY = 'onboarded';
+/** The mechanics the board has already explained, once each, ever. Kept apart from the save too. */
+const EXPLAINED_KEY = 'boardExplained';
 
 const rev = atom({ plugin: 'cc-idle', key: 'rev' } as const, 0);
 const view = atom({ plugin: 'cc-idle', key: 'view' } as const, 'main' as IdleView);
@@ -77,6 +81,7 @@ let boardLines: BoardLine[] = [];
 let boardDraft = '';
 let boardStop: AbortController | null = null;
 let lastReactMs: number | null = null;
+let explained: string[] = [];
 
 const BOARD_UNAVAILABLE: BoardLine = {
   who: 'system',
@@ -114,8 +119,7 @@ async function record($: Api, input: GameInput): Promise<void> {
       if (effect.kind === 'ceremony' || effect.kind === 'bad') $.ui.toast(effect.text);
     }
   }
-  const big = effects.find(isReactable);
-  if (big) void react($, big);
+  void speakUp($, effects.find(isReactable));
   scheduleFlush($);
 }
 
@@ -123,8 +127,8 @@ async function bumpBoard($: Api): Promise<void> {
   await update($, boardRev, (n) => n + 1);
 }
 
-/** One Haiku call in character; a newer call or leaving the chat cuts the older one. */
-async function askBoard($: Api, prompt: string): Promise<void> {
+/** One Haiku call in character; a newer call or leaving the chat cuts the older one. True when it answered. */
+async function askBoard($: Api, prompt: string): Promise<boolean> {
   boardStop?.abort();
   const stop = new AbortController();
   boardStop = stop;
@@ -154,6 +158,7 @@ async function askBoard($: Api, prompt: string): Promise<void> {
   if (boardStop === stop) boardStop = null;
   if (line && !stop.signal.aborted) boardLines = appendLine(boardLines, line);
   await bumpBoard($);
+  return line?.who === 'board';
 }
 
 function stopBoard(): void {
@@ -161,15 +166,29 @@ function stopBoard(): void {
   boardStop = null;
 }
 
-/** The board reacts to a big moment: only with the pane in view, nothing in flight, once a minute. */
-async function react($: Api, effect: Narration): Promise<void> {
+/**
+ * The board speaks unasked: it explains a mechanic the player just met (once
+ * ever), else reacts to a big moment. Only with the pane in view, nothing in
+ * flight, once a minute.
+ */
+async function speakUp($: Api, effect: Narration | undefined): Promise<void> {
   if (!sync || boardStop) return;
+  const concept = nextConcept(sync.state, explained);
+  if (!concept && !effect) return;
+  const nowMs = await $.clock.now();
+  if (!canReact(nowMs, lastReactMs)) return;
   const panes = await $.ui.panes();
   if (!panes.some((pane) => pane.id === PANE && pane.isShown && pane.isPlaced)) return;
-  const nowMs = await $.clock.now();
   if (boardStop || !canReact(nowMs, lastReactMs)) return;
   lastReactMs = nowMs;
-  await askBoard($, reactionPrompt(sync.state, effect));
+  if (!concept) {
+    await askBoard($, reactionPrompt(sync.state, effect!));
+    return;
+  }
+  if (await askBoard($, conceptPrompt(sync.state, concept))) {
+    explained = [...explained, concept.id];
+    await $.store.set(EXPLAINED_KEY, explained);
+  }
 }
 
 function telemetry($: Api, make: (ref: SessionRef, nowMs: number) => EventEnvelope): Promise<void> {
@@ -228,6 +247,10 @@ export function register(on: On): void {
     });
     // A new player meets the welcome screen first.
     onboarded = (await $.store.get(ONBOARDED_KEY)) === true;
+    const saidBefore = await $.store.get(EXPLAINED_KEY);
+    explained = Array.isArray(saidBefore)
+      ? saidBefore.filter((id): id is string => typeof id === 'string')
+      : [];
     if (!onboarded) await update($, view, () => 'help' as IdleView);
     // Unasked, the pane only seats in a wide terminal; /idle opens it anywhere.
     void $.ui.open({ id: PANE, title: 'cc-idle' }).then((opened) => {
