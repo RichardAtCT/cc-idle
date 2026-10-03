@@ -15,6 +15,16 @@ Requires Claude Code v2.1.287 or later.
 
 Or try it from a clone for one session: `claude --plugin-dir ./plugins/cc-idle`.
 
+To pick up new commits from `main`:
+
+```text
+claude plugin marketplace update cc-idle && claude plugin update cc-idle@cc-idle
+```
+
+`plugin.json` sets no `version` on purpose. Claude Code then uses the commit SHA as the version,
+so every merge to `main` is an update. `claude plugin validate` warns about the missing version;
+ignore that warning.
+
 ## Play
 
 - In a terminal at least 144 columns wide, the pane opens beside the transcript by itself.
