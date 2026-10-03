@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { generationThreshold, hireCost, initialGameState, type GameState } from '../src/game.js';
+import { BALANCE, generationThreshold, hireCost, initialGameState, type GameState } from '../src/game.js';
 import { breakthroughRows, focusedRegion, infraActions, labView, nextStep, rackDiagram, statusText } from '../src/view.js';
 
 function game(patch: (g: GameState) => void = () => {}): GameState {
@@ -74,6 +74,29 @@ describe('pane view model', () => {
       });
       expect(labView(g, 1).actions[0]?.isReady).toBe(true);
       expect(nextStep(g, a(g))).toMatch(/Press h/);
+    });
+
+    it('points a new researcher at a source of model progress', () => {
+      const hired = (data: number) =>
+        game((s) => {
+          a(s).infrastructure['gpu'] = 1;
+          s.lab.researchers = 1;
+          s.resources.engineering = 100;
+          s.resources.research = data;
+        });
+      const rich = hired(BALANCE.lab.experimentDataCost);
+      expect(nextStep(rich, a(rich))).toMatch(/Press e/);
+      const poor = hired(3);
+      expect(nextStep(poor, a(poor))).toMatch(/have 3\).*subagent/);
+      const noEng = hired(BALANCE.lab.experimentDataCost);
+      noEng.resources.engineering = 0;
+      expect(nextStep(noEng, a(noEng))).toBeNull();
+      const started = game((s) => {
+        a(s).infrastructure['gpu'] = 1;
+        s.lab.researchers = 1;
+        s.lab.modelProgress = 1;
+      });
+      expect(nextStep(started, a(started))).toBeNull();
     });
 
     it('points at shipping once the model bar is full', () => {

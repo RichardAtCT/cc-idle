@@ -33,7 +33,7 @@ export function LabPanel({ game }: LabPanelProps): React.ReactElement {
       <Box justifyContent="space-between">
         <Text bold>FRONTIER LAB</Text>
         <Text>
-          ☺ {game.lab.researchers}/{cap} researchers <Text dimColor>(×{labMultiplier(game).toFixed(2)})</Text>
+          ☺ {game.lab.researchers}/{cap} researchers <Text dimColor>(progress ×{labMultiplier(game).toFixed(2)})</Text>
         </Text>
       </Box>
       <Box gap={1}>
